@@ -1,0 +1,1657 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fast Camp Takip Sistemi</title>
+<style>
+:root{--navy:#1F3864;--red:#C00000;--green:#2E7D32;--orange:#E65100;
+--gray:#5A6472;--light:#EEF3FA;--border:#C8D2E4;--bg:#F5F7FB}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:#22303F}
+.hide{display:none!important}
+
+/* ---------- giriş ---------- */
+#girisEkran{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;
+background:linear-gradient(160deg,#1F3864,#0E1B33)}
+.giris-kart{background:#fff;border-radius:14px;padding:28px 24px;width:100%;max-width:400px;
+box-shadow:0 18px 45px rgba(0,0,0,.3)}
+.logo{text-align:center;margin-bottom:22px}
+.logo b{color:var(--red);font-size:22px;letter-spacing:.5px}
+.logo div{color:var(--navy);font-size:13px;letter-spacing:3px;margin-top:2px}
+.logo small{display:block;color:var(--gray);font-size:12px;margin-top:8px}
+label{display:block;font-size:12px;color:var(--gray);margin:12px 0 4px;font-weight:600}
+input,select,textarea{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:8px;
+font-size:15px;font-family:inherit;background:#fff}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--navy)}
+button{cursor:pointer;font-family:inherit}
+.btn{width:100%;padding:12px;background:var(--navy);color:#fff;border:none;border-radius:8px;
+font-size:15px;font-weight:600;margin-top:18px}
+.btn:hover{background:#16294a}
+.btn.kirmizi{background:var(--red)}
+.btn.ince{width:auto;padding:9px 16px;font-size:14px;margin-top:0}
+.btn.gri{background:#fff;color:var(--navy);border:1px solid var(--border)}
+.link{text-align:center;margin-top:16px;font-size:13px;color:var(--gray)}
+.link a{color:var(--navy);cursor:pointer;font-weight:600;text-decoration:none}
+.uyari{padding:10px 12px;border-radius:8px;font-size:13px;margin-top:14px;display:none}
+.uyari.hata{background:#FDECEA;color:#A5271B;display:block}
+.uyari.ok{background:#E9F5EC;color:#1B5E20;display:block}
+
+/* ---------- üst bar ---------- */
+header{background:var(--navy);color:#fff;padding:12px 18px;display:flex;
+align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;position:sticky;top:0;z-index:20}
+header .marka b{color:#FF6B6B;font-size:16px}
+header .marka span{font-size:13px;opacity:.85;margin-left:6px}
+header .sag{display:flex;align-items:center;gap:12px;font-size:13px}
+.rozet{background:rgba(255,255,255,.15);padding:4px 10px;border-radius:20px;font-size:12px}
+.cikis{background:none;border:1px solid rgba(255,255,255,.4);color:#fff;padding:6px 12px;
+border-radius:6px;font-size:13px}
+
+/* ---------- sekme ---------- */
+nav{background:#fff;border-bottom:1px solid var(--border);display:flex;overflow-x:auto;
+position:sticky;top:52px;z-index:19}
+nav button{background:none;border:none;padding:13px 18px;font-size:14px;color:var(--gray);
+white-space:nowrap;border-bottom:3px solid transparent}
+nav button.aktif{color:var(--navy);font-weight:700;border-bottom-color:var(--red)}
+
+main{max-width:1100px;margin:0 auto;padding:18px}
+.kart{background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px}
+.kart h2{font-size:16px;color:var(--navy);margin-bottom:4px}
+.kart p.alt{font-size:13px;color:var(--gray);margin-bottom:14px}
+
+.metrik-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.metrik-grid .alan label{margin-top:0}
+.hedef-not{font-size:11px;color:var(--gray);margin-top:3px}
+
+.kutucuklar{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:16px}
+.kutu{background:var(--light);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+.kutu span{display:block;font-size:12px;color:var(--gray);margin-bottom:6px}
+.kutu b{font-size:24px;color:var(--navy)}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--navy);color:#fff;padding:9px 8px;text-align:left;font-weight:600;font-size:12px}
+td{padding:9px 8px;border-bottom:1px solid #EDF1F7}
+tr:nth-child(even) td{background:#FAFCFF}
+.tablo-kaydir{overflow-x:auto}
+
+.gorev-satir{display:flex;align-items:flex-start;gap:10px;padding:10px 6px;border-bottom:1px solid #EDF1F7}
+.gorev-satir input{width:18px;height:18px;margin-top:2px;flex-shrink:0}
+.gorev-satir label{margin:0;font-size:14px;color:#22303F;font-weight:400;cursor:pointer}
+.gorev-satir.bitti label{color:var(--green);text-decoration:line-through}
+.hafta-etiket{display:inline-block;background:var(--light);color:var(--navy);font-size:11px;
+padding:2px 7px;border-radius:4px;margin-right:6px;font-weight:700}
+
+canvas{width:100%;max-width:100%}
+.analiz div{font-size:13px;margin:5px 0}
+.analiz .iyi{color:var(--green)}
+.analiz .orta{color:var(--orange)}
+.analiz .kotu{color:var(--red)}
+.analiz h4{font-size:13px;color:var(--navy);margin:14px 0 6px}
+
+.dan-satir{display:flex;justify-content:space-between;align-items:center;padding:12px;
+border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;background:#fff}
+.dan-satir:hover{border-color:var(--navy);background:#FAFCFF}
+.dan-satir.secili{border-color:var(--navy);background:var(--light)}
+.dan-satir .ad{font-weight:600;font-size:14px}
+.dan-satir .bilgi{font-size:12px;color:var(--gray)}
+.dan-satir .skor{font-size:18px;font-weight:700}
+
+.yorum-kutu{background:#FFFAEB;border-left:4px solid #BF8F00;padding:12px;border-radius:6px;
+font-size:13px;margin-top:12px}
+.yorum-kutu b{display:block;color:#8B6914;margin-bottom:4px;font-size:12px}
+
+.yukleniyor{text-align:center;padding:40px;color:var(--gray)}
+@media(max-width:640px){
+  main{padding:12px}
+  .kart{padding:14px}
+  nav{top:0;position:relative}
+  header{position:relative}
+}
+</style>
+</head>
+<body>
+
+<!-- ============ GİRİŞ EKRANI ============ -->
+<div id="girisEkran">
+  <div class="giris-kart">
+    <div class="logo">
+      <b>RE/MAX EKSEN</b>
+      <div>FAST CAMP</div>
+      <small>Danışman Takip Sistemi</small>
+    </div>
+
+    <div id="formGiris">
+      <label>E-posta</label>
+      <input type="email" id="gEposta" autocomplete="email" placeholder="ornek@mail.com">
+      <label>Şifre</label>
+      <input type="password" id="gSifre" autocomplete="current-password" placeholder="••••••••">
+      <button class="btn" onclick="girisYap()">Giriş Yap</button>
+      <div class="link"><a onclick="ekranDegis('sifre')">Şifremi unuttum</a></div>
+      <div class="link">Hesabın yok mu? <a onclick="ekranDegis('kayit')">Kayıt ol</a></div>
+    </div>
+
+    <div id="formSifre" class="hide">
+      <p style="font-size:13px;color:var(--gray);margin-bottom:6px">
+        E-postana sıfırlama bağlantısı göndereceğiz.</p>
+      <label>E-posta</label>
+      <input type="email" id="uEposta" autocomplete="email">
+      <button class="btn" onclick="sifreSifirla()">Bağlantı Gönder</button>
+      <div class="link"><a onclick="ekranDegis('giris')">Girişe dön</a></div>
+    </div>
+
+    <div id="formYeniSifre" class="hide">
+      <p style="font-size:13px;color:var(--gray);margin-bottom:6px">
+        Yeni şifreni belirle.</p>
+      <label>Yeni şifre (en az 6 karakter)</label>
+      <input type="password" id="ySifre" autocomplete="new-password">
+      <button class="btn" onclick="yeniSifreKaydet()">Şifreyi Kaydet</button>
+    </div>
+
+    <div id="formOnay" class="hide">
+      <div style="text-align:center;padding:10px 0">
+        <div style="font-size:38px">⏳</div>
+        <h3 style="color:var(--navy);margin:10px 0 6px">Onay Bekleniyor</h3>
+        <p style="font-size:13.5px;color:var(--gray);line-height:1.6">
+          Kaydın alındı. Yöneticin hesabını onayladıktan sonra
+          giriş yapabileceksin.</p>
+        <button class="btn gri" style="margin-top:16px" onclick="cikisYap()">Çıkış</button>
+      </div>
+    </div>
+
+    <div id="formKayit" class="hide">
+      <label>Ad Soyad</label>
+      <input type="text" id="kAd" placeholder="Ahmet Yılmaz">
+      <label>E-posta</label>
+      <input type="email" id="kEposta" autocomplete="email">
+      <label>Şifre (en az 6 karakter)</label>
+      <input type="password" id="kSifre" autocomplete="new-password">
+      <label>Görevin</label>
+      <select id="kRol" onchange="rolAlanGuncelle()">
+        <option value="danisman">Gayrimenkul Danışmanı</option>
+        <option value="gelisim_kocu">Gelişim Koçu</option>
+        <option value="recruiter">Recruiter</option>
+        <option value="ofis_muduru">Ofis Müdürü</option>
+        <option value="broker">Broker</option>
+        <option value="mentor">Mentör</option>
+      </select>
+      <div style="font-size:11.5px;color:var(--gray);margin:-6px 0 8px">
+        Seçimin yöneticinin onayına sunulur.</div>
+
+      <label id="kBolgeEtiket">Uzmanlık Bölgesi</label>
+      <input type="text" id="kBolge" placeholder="Üsküdar">
+      <label>Ekip Kodu</label>
+      <input type="text" id="kKod" placeholder="Mentörünüzden alın" oninput="grupKontrol()">
+      <div id="grupBilgi" style="font-size:12px;color:var(--gray);margin-top:-6px;margin-bottom:8px"></div>
+      <button class="btn" onclick="kayitOl()">Kayıt Ol</button>
+      <div class="link">Hesabın var mı? <a onclick="ekranDegis('giris')">Giriş yap</a></div>
+    </div>
+
+    <div id="girisMesaj" class="uyari"></div>
+  </div>
+</div>
+
+<!-- ============ UYGULAMA ============ -->
+<div id="uygulama" class="hide">
+  <header>
+    <div class="marka"><b>RE/MAX EKSEN</b><span>Fast Camp</span></div>
+    <div class="sag">
+      <span class="rozet" id="kimlikRozet">—</span>
+      <button class="cikis" onclick="cikisYap()">Çıkış</button>
+    </div>
+  </header>
+
+  <nav id="sekmeler"></nav>
+  <main id="icerik"><div class="yukleniyor">Yükleniyor…</div></main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ==========================================================
+   AYARLAR — Supabase bilgilerini buraya yapıştır
+   ========================================================== */
+const SUPABASE_URL  = "https://nupspupnyohoickmgvhq.supabase.co";
+const SUPABASE_ANON = "sb_publishable_f_ufJO1NorKD8f49Dggdzw_t_mknCt0";
+/* ========================================================== */
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+const METRIKLER = [
+  ["fsbo_arama","FSBO / Soğuk Arama"],["sicak_arama","Sıcak Arama (Etki Çevresi)"],
+  ["ulasilan","Ulaşılan Kişi"],["gorusme","Anlamlı Görüşme"],
+  ["randevu_talebi","Randevu Talebi"],["alinan_randevu","Alınan Randevu"],
+  ["portfoy_sunumu","Portföy Sunumu (LP)"],["degerleme","Değerleme (CMA)"],
+  ["portfoy_alim","Alınan Portföy"],["islem","Kapanan İşlem"],
+  ["mesaj","Mesaj / E-posta"]
+];
+const ETIKET = Object.fromEntries(METRIKLER);
+
+// Formdaki görsel gruplar
+const GRUPLAR = [
+  ["Arama Hunisi", ["fsbo_arama","sicak_arama","ulasilan","gorusme"]],
+  ["Randevu ve Sunum", ["randevu_talebi","alinan_randevu","portfoy_sunumu","degerleme"]],
+  ["Sonuç", ["portfoy_alim","islem","mesaj"]]
+];
+
+// 61 Adımlık Pazarlama Planı'ndan haftalık ölçülebilir aksiyonlar
+const PAZARLAMA_GRUP = [
+  ["Hazırlık ve Sunum", [
+    ["pz_cma","Güncel fiyat analizi (CMA) hazırladım"],
+    ["pz_sahne","Ev sahneleme / hazırlık önerisi verdim"],
+    ["pz_evrak","Eksik belge takibi yaptım (iskan, DASK, tapu)"],
+  ]],
+  ["Görsel Üretim", [
+    ["pz_foto","Profesyonel fotoğraf çektirdim"],
+    ["pz_video","Video / drone çekimi yaptım"],
+    ["pz_sanaltur","Sanal tur hazırladım"],
+  ]],
+  ["Dijital Yayın", [
+    ["pz_ilan","Portal ilanı yayınladım / güncelledim"],
+    ["pz_doping","İlan öne çıkarma (doping) satın aldım"],
+    ["pz_sosyal","Sosyal medya paylaşımı yaptım"],
+    ["pz_reklam","Ücretli reklam yayınladım"],
+  ]],
+  ["Ağ ve Saha", [
+    ["pz_ag","Ofis içi / RE/MAX ağında paylaştım"],
+    ["pz_mektup","Komşu bildirim mektubu dağıttım"],
+    ["pz_acikev","Açık ev / safari yaptım"],
+    ["pz_esnaf","Bölge esnafına broşür bıraktım"],
+  ]],
+  ["Satıcı İletişimi", [
+    ["pz_rapor","Satıcıya haftalık rapor gönderdim"],
+    ["pz_geribildirim","Gösterim geri bildirimlerini ilettim"],
+  ]],
+];
+const PAZARLAMA = PAZARLAMA_GRUP.flatMap(([,l])=>l);
+
+const BANT_ADI = {taban:"Taban", gercekci:"Gerçekçi", yildiz:"Yıldız"};
+
+const KATILIM = [
+  ["kt_kocluk","Haftalık koçluk seansına katıldım"],
+  ["kt_ofis","Ofis toplantısına katıldım"],
+  ["kt_egitim","Fast Camp / eğitim oturumuna katıldım"]
+];
+
+// Roller ve yetki seviyeleri
+//  0 danışman | 1 görüntüleyici | 2 düzenleyici | 3 üst yönetim
+const ROLLER = {
+  danisman:     {ad:"Gayrimenkul Danışmanı", y:0},
+  recruiter:    {ad:"Recruiter",             y:1},
+  gelisim_kocu: {ad:"Gelişim Koçu",          y:2},
+  mentor:       {ad:"Mentör",                y:3},
+  ofis_muduru:  {ad:"Ofis Müdürü",           y:3},
+  broker:       {ad:"Broker",                y:3},
+};
+const ROL_ADI = Object.fromEntries(Object.entries(ROLLER).map(([k,v])=>[k,v.ad]));
+const yetki = () => (ROLLER[BEN?.rol]?.y ?? 0);
+const yonetimMi   = () => yetki() >= 1;   // ekibi görebilir
+const duzenlerMi  = () => yetki() >= 2;   // veri/görev düzenleyebilir
+const ustYonetimMi= () => yetki() >= 3;   // hedef ve rol değiştirebilir
+
+let BEN = null;      // profil
+let HEDEF = {};      // hedefler
+let AKTIF_SEKME = "";
+let SECILI_DAN = null;
+let GRUPLAR_LISTE = [];
+let SECILI_GRUP = "";     // "" = tümü
+let KIYAS_MOD = "kisi";   // "kisi" | "grup"
+let BEKLEYEN_SORU = 0;   // yönetim: cevap bekleyen soru sayısı
+let YENI_CEVAP = 0;      // danışman: okunmamış cevap sayısı
+
+/* ---------------- yardımcı ---------------- */
+const $ = s => document.querySelector(s);
+const esc = t => String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const skorRenk = p => p>=80 ? "var(--green)" : p>=50 ? "var(--orange)" : "var(--red)";
+
+function mesaj(metin, tur){
+  const m = $("#girisMesaj");
+  m.textContent = metin;
+  m.className = "uyari " + tur;
+  if(tur==="ok") setTimeout(()=>m.className="uyari", 6000);
+}
+function ekranDegis(hangi){
+  ["giris","kayit","sifre","yeniSifre","onay"].forEach(f=>{
+    const id = "#form" + f.charAt(0).toUpperCase() + f.slice(1);
+    const el = document.querySelector(id);
+    if(el) el.classList.toggle("hide", hangi!==f);
+  });
+  $("#girisMesaj").className="uyari";
+}
+
+/* ---------------- oturum ---------------- */
+async function girisYap(){
+  const email=$("#gEposta").value.trim(), password=$("#gSifre").value;
+  if(!email||!password) return mesaj("E-posta ve şifre gerekli.","hata");
+  const {error} = await sb.auth.signInWithPassword({email,password});
+  if(error) return mesaj("Giriş başarısız: "+error.message,"hata");
+  baslat();
+}
+
+async function kayitOl(){
+  const ad=$("#kAd").value.trim(), email=$("#kEposta").value.trim(),
+        password=$("#kSifre").value, bolge=$("#kBolge").value.trim(),
+        kod=$("#kKod").value.trim(), rol=$("#kRol").value;
+  if(!ad||!email||!password) return mesaj("Ad, e-posta ve şifre zorunlu.","hata");
+  if(password.length<6) return mesaj("Şifre en az 6 karakter olmalı.","hata");
+
+  if(!kod) return mesaj("Ekip kodu gerekli. Mentörünüzden alın.","hata");
+  const {data:grup, error:gErr} = await sb.from("grup")
+    .select("id,ad,durum").eq("kod",kod).maybeSingle();
+  if(gErr) return mesaj("Kod doğrulanamadı. Yöneticinize bildirin.","hata");
+  if(!grup) return mesaj("Ekip kodu hatalı. Mentörünüzden alın.","hata");
+  if(grup.durum !== "aktif") return mesaj("Bu ekibin kaydı kapanmış.","hata");
+
+  const {error} = await sb.auth.signUp({email, password,
+    options:{data:{ad, bolge, rol, grup_kod:kod}}});
+  if(error) return mesaj("Kayıt başarısız: "+error.message,"hata");
+  mesaj("Kaydın alındı ("+grup.ad+" · "+(ROLLER[rol]?.ad||rol)+
+        "). Yöneticin onayladıktan sonra giriş yapabilirsin.","ok");
+  setTimeout(()=>ekranDegis("giris"), 2200);
+}
+
+function rolAlanGuncelle(){
+  const dan = $("#kRol").value === "danisman";
+  $("#kBolgeEtiket").textContent = dan ? "Uzmanlık Bölgesi" : "Bölge / Birim (isteğe bağlı)";
+}
+
+async function grupKontrol(){
+  const kod = $("#kKod").value.trim();
+  const el = $("#grupBilgi");
+  if(!kod){ el.textContent=""; return; }
+  const {data:grup} = await sb.from("grup").select("ad,durum").eq("kod",kod).maybeSingle();
+  if(!grup){ el.textContent = "Kod bulunamadı"; el.style.color = "var(--red)"; }
+  else if(grup.durum!=="aktif"){ el.textContent = grup.ad + " — kayıt kapalı"; el.style.color="var(--orange)"; }
+  else { el.textContent = "✓ " + grup.ad; el.style.color = "var(--green)"; }
+}
+
+async function sifreSifirla(){
+  const email = $("#uEposta").value.trim();
+  if(!email) return mesaj("E-posta gerekli.","hata");
+  const {error} = await sb.auth.resetPasswordForEmail(email,
+    {redirectTo: location.origin + location.pathname});
+  if(error) return mesaj("Gönderilemedi: "+error.message,"hata");
+  mesaj("Sıfırlama bağlantısı e-postana gönderildi. Gelen kutunu kontrol et.","ok");
+}
+
+async function yeniSifreKaydet(){
+  const sifre = $("#ySifre").value;
+  if(sifre.length < 6) return mesaj("Şifre en az 6 karakter olmalı.","hata");
+  const {error} = await sb.auth.updateUser({password:sifre});
+  if(error) return mesaj("Kaydedilemedi: "+error.message,"hata");
+  // Adres çubuğundaki #type=recovery temizlenmezse sayfa yenilendiğinde
+  // kullanıcı yeni şifre ekranına kilitlenir.
+  history.replaceState(null, "", location.pathname);
+  mesaj("Şifren güncellendi. Giriş yapabilirsin.","ok");
+  setTimeout(()=>{ ekranDegis("giris"); baslat(); }, 1500);
+}
+
+async function cikisYap(){
+  await sb.auth.signOut();
+  location.reload();
+}
+
+async function baslat(){
+  // Şifre sıfırlama bağlantısıyla gelindiyse yeni şifre formunu göster
+  if(location.hash.includes("type=recovery")){
+    $("#girisEkran").classList.remove("hide");
+    $("#uygulama").classList.add("hide");
+    ekranDegis("yeniSifre");
+    return;
+  }
+
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ $("#girisEkran").classList.remove("hide"); $("#uygulama").classList.add("hide"); return; }
+
+  let {data:profil} = await sb.from("profiles")
+        .select("*").eq("id",session.user.id).maybeSingle();
+
+  // Emniyet ağı: veritabanı tetikleyicisi çalışmamışsa profili burada oluştur
+  if(!profil){
+    const ust = session.user.user_metadata || {};
+    // Kayıt sırasındaki ekip kodundan grubu bul (tetikleyici çalışmadıysa)
+    let grupId = null;
+    if(ust.grup_kod){
+      const {data:g} = await sb.from("grup").select("id").eq("kod",ust.grup_kod).maybeSingle();
+      grupId = g?.id ?? null;
+    }
+    const {data:yeni, error:pErr} = await sb.from("profiles").insert({
+      id: session.user.id,
+      ad: ust.ad || session.user.email?.split("@")[0] || "",
+      rol: ust.rol || "danisman",
+      bolge: ust.bolge || "",
+      grup_id: grupId
+    }).select().single();
+    if(pErr || !yeni){
+      mesaj("Profil oluşturulamadı: " + (pErr?.message||"bilinmeyen hata") +
+            "  —  Kurulum SQL dosyasının çalıştırıldığından emin olun.","hata");
+      await sb.auth.signOut();
+      return;
+    }
+    profil = yeni;
+  }
+  BEN = profil;
+
+  // Onaylanmamış hesap içeri giremez
+  if(!BEN.onay){
+    $("#girisEkran").classList.remove("hide");
+    $("#uygulama").classList.add("hide");
+    ekranDegis("onay");
+    return;
+  }
+
+  // Görevler atanmamışsa şablondan doldur
+  if(BEN.rol === "danisman"){
+    const {count} = await sb.from("gorev")
+      .select("id",{count:"exact",head:true}).eq("user_id",BEN.id);
+    if(!count){
+      const {data:sablon} = await sb.from("gorev_sablon").select("hafta,gorev").order("hafta");
+      if(sablon?.length){
+        await sb.from("gorev").insert(
+          sablon.map(s=>({user_id:BEN.id, hafta:s.hafta, gorev:s.gorev})));
+      }
+    }
+  }
+
+  const {data:hedefler} = await sb.from("hedef").select("*");
+  HEDEF = Object.fromEntries((hedefler||[]).map(h=>[h.anahtar,h]));
+
+  $("#girisEkran").classList.add("hide");
+  $("#uygulama").classList.remove("hide");
+  const {data:grp} = await sb.from("grup").select("*").order("id");
+  GRUPLAR_LISTE = grp || [];
+
+  await sayaclariYenile();
+
+  $("#kimlikRozet").textContent = profil.ad +
+    (profil.rol!=="danisman" ? " · " + (ROL_ADI[profil.rol]||profil.rol) : "");
+
+  sekmeleriKur();
+}
+
+function sekmeleriKur(){
+  let liste;
+  if(yonetimMi()){
+    liste = [["ekip","Ekip Özeti"],["detay","Danışman Detayı"],["kiyas","Karşılaştırma"],
+             ["sorular", "Sorular" + (BEKLEYEN_SORU? ` (${BEKLEYEN_SORU})` : "")],
+             ["kaynaklar","Eğitim Merkezi"]];
+    if(ustYonetimMi()) liste.push(["ayar","Yönetim"]);
+  } else {
+    liste = [["girisim","Haftalık Girişim"],["benim","Performansım"],
+             ["gorevlerim","Görevlerim"],
+             ["soru","Mentöre Sor" + (YENI_CEVAP? ` (${YENI_CEVAP})` : "")],
+             ["kaynaklar","Eğitim Merkezi"]];
+  }
+  $("#sekmeler").innerHTML = liste.map(([k,ad])=>
+    `<button data-k="${k}" onclick="sekmeAc('${k}')">${ad}</button>`).join("");
+  sekmeAc(liste[0][0]);
+}
+
+function sekmeAc(k){
+  AKTIF_SEKME = k;
+  document.querySelectorAll("#sekmeler button").forEach(b=>
+    b.classList.toggle("aktif", b.dataset.k===k));
+  ({girisim:ekranGirisim, benim:ekranBenim, gorevlerim:ekranGorevlerim,
+    soru:ekranSoru, sorular:ekranSorular, kaynaklar:ekranKaynaklar,
+    ekip:ekranEkip, detay:ekranDetay, kiyas:ekranKiyas, ayar:ekranAyar})[k]();
+}
+
+/* ---------------- hesaplama ---------------- */
+function analizEt(kayitlar, bant){
+  bant = bant || "taban";
+  const n = kayitlar.length;
+  if(!n) return {genel:0, detay:{}, hafta:n, bant};
+  const detay={}, oranlar=[];
+  for(const [kol,] of METRIKLER){
+    const h = HEDEF[kol];
+    const aylik = h ? (h[bant] ?? h.taban) : 0;
+    if(!aylik || aylik<=0) continue;
+    const gercek = kayitlar.reduce((t,k)=>t+(k[kol]||0),0);
+    const beklenen = aylik * (n/4);          // kitap: hedefler AYLIK
+    const oran = beklenen ? gercek/beklenen*100 : 0;
+    detay[kol]=[gercek, beklenen, oran];
+    oranlar.push(Math.min(oran,150));
+  }
+  return {genel: oranlar.length? oranlar.reduce((a,b)=>a+b,0)/oranlar.length : 0, detay, hafta:n, bant};
+}
+
+/* ---------------- grafik ---------------- */
+function barCiz(id, veriler, birim=""){
+  const c=document.getElementById(id); if(!c) return;
+  const dpr=window.devicePixelRatio||1, W=c.clientWidth, H=Math.max(veriler.length*34+30,90);
+  c.width=W*dpr; c.height=H*dpr; c.style.height=H+"px";
+  const x=c.getContext("2d"); x.scale(dpr,dpr); x.clearRect(0,0,W,H);
+  if(!veriler.length){ x.fillStyle="#8892A0"; x.font="13px sans-serif";
+    x.fillText("Veri yok",10,30); return; }
+  const sol=Math.min(150,W*0.38), sag=58, gw=Math.max(W-sol-sag,40);
+  const maks=Math.max(...veriler.map(v=>v[1]),1);
+  veriler.forEach(([et,val],i)=>{
+    const y=20+i*34, u=(val/maks)*gw;
+    x.fillStyle="#EDF1F7"; x.fillRect(sol,y,gw,16);
+    x.fillStyle = birim==="%" ? skorRenkHex(val) : "#1F3864";
+    x.fillRect(sol,y,Math.max(u,2),16);
+    x.fillStyle="#22303F"; x.font="12px sans-serif"; x.textAlign="right";
+    x.fillText(et.length>20?et.slice(0,19)+"…":et, sol-8, y+12);
+    x.textAlign="left"; x.fillStyle=birim==="%"?skorRenkHex(val):"#1F3864";
+    x.font="bold 12px sans-serif";
+    x.fillText(Math.round(val)+birim, sol+Math.max(u,2)+7, y+12);
+  });
+}
+const skorRenkHex = p => p>=80?"#2E7D32":p>=50?"#E65100":"#C00000";
+
+function cizgiCiz(id, seri){
+  const c=document.getElementById(id); if(!c) return;
+  const dpr=window.devicePixelRatio||1, W=c.clientWidth, H=200;
+  c.width=W*dpr; c.height=H*dpr; c.style.height=H+"px";
+  const x=c.getContext("2d"); x.scale(dpr,dpr); x.clearRect(0,0,W,H);
+  if(seri.length<1){ x.fillStyle="#8892A0"; x.font="13px sans-serif";
+    x.fillText("Veri yok",10,30); return; }
+  const sol=38,sag=14,ust=16,alt=28, gw=W-sol-sag, gh=H-ust-alt;
+  const maks=Math.max(...seri.map(s=>s[1]),1);
+  x.strokeStyle="#EDF1F7"; x.lineWidth=1;
+  for(let i=0;i<=4;i++){ const y=ust+gh-gh*i/4;
+    x.beginPath(); x.moveTo(sol,y); x.lineTo(sol+gw,y); x.stroke();
+    x.fillStyle="#8892A0"; x.font="10px sans-serif"; x.textAlign="right";
+    x.fillText(Math.round(maks*i/4), sol-6, y+3); }
+  const adim = gw/Math.max(seri.length-1,1);
+  const pts = seri.map((s,i)=>[sol+adim*i, ust+gh-(s[1]/maks)*gh]);
+  if(pts.length>1){ x.strokeStyle="#1F3864"; x.lineWidth=2; x.beginPath();
+    pts.forEach((p,i)=> i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1])); x.stroke(); }
+  pts.forEach((p,i)=>{ x.fillStyle="#C00000"; x.beginPath();
+    x.arc(p[0],p[1],4,0,Math.PI*2); x.fill();
+    x.fillStyle="#5A6472"; x.font="10px sans-serif"; x.textAlign="center";
+    x.fillText("H"+seri[i][0], p[0], H-8); });
+}
+
+/* ==========================================================
+   DANIŞMAN EKRANLARI
+   ========================================================== */
+async function ekranGirisim(){
+  const bant = BEN.hedef_bandi || "taban";
+  const hedefYaz = k => {
+    const h=HEDEF[k]; if(!h) return "&nbsp;";
+    const aylik = h[bant] ?? h.taban;
+    if(!aylik) return "&nbsp;";
+    return `Aylık hedef: ${aylik}`;
+  };
+  $("#icerik").innerHTML = `
+    <div class="kart">
+      <h2>Haftalık Girişim</h2>
+      <p class="alt">Her hafta sonu bu haftanın rakamlarını gir.
+      Hedef bandın: <b>${BANT_ADI[bant]||bant}</b>. Sadece sen ve mentörün görür.</p>
+      <div class="metrik-grid">
+        <div class="alan"><label>Hafta</label>
+          <select id="fHafta">${Array.from({length:10},(_,i)=>
+            `<option value="${i+1}">Hafta ${i+1}</option>`).join("")}</select></div>
+        <div class="alan"><label>Tarih</label>
+          <input type="date" id="fTarih" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      ${GRUPLAR.map(([baslik,kols])=>`
+        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">${baslik}</div>
+          <div class="metrik-grid">
+            ${kols.map(k=>`
+              <div class="alan">
+                <label>${ETIKET[k]}</label>
+                <input type="number" min="0" id="f_${k}" value="0">
+                <div class="hedef-not">${hedefYaz(k)}</div>
+              </div>`).join("")}
+          </div>
+        </div>`).join("")}
+
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px">
+          Toplantı ve Eğitim Katılımı</div>
+        ${KATILIM.map(([k,ad])=>`
+          <div class="gorev-satir" style="border:none;padding:7px 2px">
+            <input type="checkbox" id="f_${k}">
+            <label for="f_${k}">${ad}</label>
+          </div>`).join("")}
+        <label style="margin-top:8px">Katılamadıysan gerekçe</label>
+        <input type="text" id="f_kt_not" placeholder="İsteğe bağlı">
+      </div>
+
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:4px">
+          Pazarlama — bu hafta ne yaptın?</div>
+        <div style="font-size:11.5px;color:var(--gray);margin-bottom:10px">
+          61 Adımlık Pazarlama Planı'ndan haftalık aksiyonlar</div>
+        ${PAZARLAMA_GRUP.map(([baslik,liste])=>`
+          <div style="margin-top:10px">
+            <div style="font-size:12px;font-weight:600;color:var(--gray);
+                 text-transform:uppercase;letter-spacing:.3px">${baslik}</div>
+            ${liste.map(([k,ad])=>`
+              <div class="gorev-satir" style="border:none;padding:6px 2px">
+                <input type="checkbox" id="f_${k}">
+                <label for="f_${k}">${ad}</label>
+              </div>`).join("")}
+          </div>`).join("")}
+      </div>
+
+      <label style="margin-top:16px">Bu hafta hakkında notun</label>
+      <textarea id="fNot" rows="3" placeholder="Neler iyi gitti, nerede zorlandın?"></textarea>
+      <button class="btn" onclick="haftaKaydet()">KAYDET</button>
+      <div id="girisimMesaj" class="uyari"></div>
+      <div id="mentorYorumAlan"></div>
+    </div>`;
+  $("#fHafta").onchange = haftaYukle;
+  haftaYukle();
+}
+
+async function haftaYukle(){
+  const hafta = +$("#fHafta").value;
+  const {data} = await sb.from("haftalik").select("*")
+    .eq("user_id",BEN.id).eq("hafta",hafta).maybeSingle();
+  METRIKLER.forEach(([k])=> $("#f_"+k).value = data? (data[k]||0) : 0);
+  PAZARLAMA.forEach(([k])=> $("#f_"+k).checked = data? !!data[k] : false);
+  KATILIM.forEach(([k])=> $("#f_"+k).checked = data? !!data[k] : false);
+  if($("#f_kt_not")) $("#f_kt_not").value = data?.kt_not || "";
+  $("#fNot").value = data?.aciklama || "";
+  if(data?.tarih) $("#fTarih").value = data.tarih;
+  $("#mentorYorumAlan").innerHTML = data?.mentor_yorum
+    ? `<div class="yorum-kutu"><b>MENTÖR YORUMU</b>${esc(data.mentor_yorum)}</div>` : "";
+}
+
+async function haftaKaydet(){
+  const kayit = {user_id:BEN.id, hafta:+$("#fHafta").value, tarih:$("#fTarih").value,
+                 aciklama:$("#fNot").value.trim(), updated_at:new Date().toISOString()};
+  METRIKLER.forEach(([k])=> kayit[k] = +($("#f_"+k).value||0));
+  PAZARLAMA.forEach(([k])=> kayit[k] = $("#f_"+k).checked);
+  KATILIM.forEach(([k])=> kayit[k] = $("#f_"+k).checked);
+  kayit.kt_not = ($("#f_kt_not")?.value || "").trim();
+  const {error} = await sb.from("haftalik").upsert(kayit,{onConflict:"user_id,hafta"});
+  const m=$("#girisimMesaj");
+  if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
+  else { m.className="uyari ok"; m.textContent="Kaydedildi. Teşekkürler!";
+         setTimeout(()=>m.className="uyari",4000); }
+}
+
+async function ekranBenim(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Hesaplanıyor…</div>`;
+  const {data:kayitlar} = await sb.from("haftalik").select("*")
+    .eq("user_id",BEN.id).order("hafta");
+  const {data:gorevler} = await sb.from("gorev").select("tamam").eq("user_id",BEN.id);
+  const a = analizEt(kayitlar||[], BEN.hedef_bandi);
+  const gTop=(gorevler||[]).length, gYap=(gorevler||[]).filter(g=>g.tamam).length;
+  const gp = gTop? gYap/gTop*100 : 0;
+  const t = k => (kayitlar||[]).reduce((s,x)=>s+(x[k]||0),0);
+  const don = t("portfoy_sunumu") ? t("portfoy_alim")/t("portfoy_sunumu")*100 : 0;
+
+  $("#icerik").innerHTML = `
+    <div class="kutucuklar">
+      <div class="kutu"><span>Genel Başarı</span><b style="color:${skorRenk(a.genel)}">${a.genel.toFixed(0)}%</b></div>
+      <div class="kutu"><span>Görev Tamamlama</span><b style="color:${skorRenk(gp)}">${gp.toFixed(0)}%</b></div>
+      <div class="kutu"><span>Portföy Sunumu</span><b>${t("portfoy_sunumu")}</b></div>
+      <div class="kutu"><span>Alınan Portföy</span><b>${t("portfoy_alim")}</b></div>
+      <div class="kutu"><span>Sunum→Yetki</span>
+        <b style="color:${skorRenk(don)}">${don.toFixed(0)}%</b></div>
+      <div class="kutu"><span>Kapanan İşlem</span><b>${t("islem")}</b></div>
+    </div>
+    <div class="kart">
+      <h2>Hedefe Ulaşma Oranın</h2>
+      <p class="alt">Girdiğin ${a.hafta} haftanın toplamı, <b>${BANT_ADI[a.bant]||a.bant}</b>
+      bandındaki aylık hedeflerle orantılanarak karşılaştırıldı.</p>
+      <canvas id="cBar"></canvas>
+    </div>
+    <div class="kart">
+      <h2>Haftalık Seyir</h2>
+      <select id="seriSec" style="max-width:260px;margin-bottom:12px">
+        ${METRIKLER.map(([k,ad])=>`<option value="${k}">${ad}</option>`).join("")}
+      </select>
+      <canvas id="cCizgi"></canvas>
+    </div>
+    <div class="kart analiz">
+      <h2>Güçlü ve Zayıf Yönlerin</h2>
+      <div id="analizMetin"></div>
+    </div>`;
+
+  barCiz("cBar", Object.entries(a.detay).map(([k,v])=>[ETIKET[k], v[2]]), "%");
+  const yenile = () => cizgiCiz("cCizgi",
+    (kayitlar||[]).map(k=>[k.hafta, k[$("#seriSec").value]||0]));
+  $("#seriSec").onchange = yenile; yenile();
+
+  const guclu=[],orta=[],zayif=[];
+  Object.entries(a.detay).forEach(([k,v])=>{
+    const s=`${ETIKET[k]} — %${v[2].toFixed(0)}`;
+    if(v[2]>=100) guclu.push(s); else if(v[2]>=60) orta.push(s); else zayif.push(s);
+  });
+  $("#analizMetin").innerHTML = a.hafta===0
+    ? `<div>Henüz veri girmedin. "Haftalık Girişim" sekmesinden başlayabilirsin.</div>`
+    : `<h4>GÜÇLÜ YÖNLER</h4>${guclu.length?guclu.map(s=>`<div class="iyi">✔ ${s}</div>`).join(""):"<div>—</div>"}
+       <h4>GELİŞTİRİLEBİLİR</h4>${orta.length?orta.map(s=>`<div class="orta">● ${s}</div>`).join(""):"<div>—</div>"}
+       <h4>ODAKLANMAN GEREKEN</h4>${zayif.length?zayif.map(s=>`<div class="kotu">✖ ${s}</div>`).join(""):"<div class='iyi'>Kritik eksik yok.</div>"}`;
+}
+
+async function ekranGorevlerim(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Yükleniyor…</div>`;
+  const {data:gorevler} = await sb.from("gorev").select("*")
+    .eq("user_id",BEN.id).order("hafta").order("id");
+  const top=(gorevler||[]).length, yap=(gorevler||[]).filter(g=>g.tamam).length;
+  const p = top? yap/top*100 : 0;
+  $("#icerik").innerHTML = `
+    <div class="kart">
+      <h2>Görevlerim</h2>
+      <p class="alt">Tamamladıklarını işaretle. Mentörün bunu görecek.</p>
+      <div style="font-size:15px;font-weight:700;color:${skorRenk(p)};margin-bottom:12px">
+        ${yap}/${top} tamamlandı (${p.toFixed(0)}%)</div>
+      <div id="gorevListe">
+        ${(gorevler||[]).map(g=>`
+          <div class="gorev-satir ${g.tamam?"bitti":""}" id="gs_${g.id}">
+            <input type="checkbox" ${g.tamam?"checked":""} onchange="gorevDegistir(${g.id},this.checked)">
+            <label><span class="hafta-etiket">H${g.hafta}</span>${esc(g.gorev)}</label>
+          </div>`).join("")}
+      </div>
+    </div>`;
+}
+
+async function gorevDegistir(id, durum){
+  await sb.from("gorev").update({tamam:durum,
+    tamam_tarih: durum? new Date().toISOString().slice(0,10) : null}).eq("id",id);
+  $("#gs_"+id).classList.toggle("bitti",durum);
+}
+
+/* ==========================================================
+   SORU - CEVAP
+   ========================================================== */
+async function sayaclariYenile(){
+  try{
+    if(yonetimMi()){
+      const {count} = await sb.from("soru")
+        .select("id",{count:"exact",head:true}).eq("durum","acik");
+      BEKLEYEN_SORU = count || 0;
+    } else {
+      const {count} = await sb.from("soru")
+        .select("id",{count:"exact",head:true})
+        .eq("user_id",BEN.id).eq("durum","cevaplandi").eq("okundu",false);
+      YENI_CEVAP = count || 0;
+    }
+  }catch(e){ /* sayaç kritik değil */ }
+}
+
+const grupAdi = id => GRUPLAR_LISTE.find(g=>g.id===id)?.ad || "Grupsuz";
+
+const grupSecHtml = () => GRUPLAR_LISTE.length ? `
+  <div class="kart" style="padding:12px 16px">
+    <label style="margin-top:0">Ekip filtresi</label>
+    <select style="max-width:280px" onchange="SECILI_GRUP=this.value; sekmeAc(AKTIF_SEKME);">
+      <option value="">Tüm ekipler</option>
+      ${GRUPLAR_LISTE.map(g=>`<option value="${g.id}" ${
+        String(SECILI_GRUP)===String(g.id)?"selected":""}>${esc(g.ad)}${
+        g.durum!=="aktif"?" (kapalı)":""}</option>`).join("")}
+    </select>
+  </div>` : "";
+
+const tarihYaz = t => t ? new Date(t).toLocaleDateString("tr-TR",
+  {day:"2-digit",month:"2-digit",year:"numeric"}) : "";
+
+/* ---------- DANIŞMAN: Mentöre Sor ---------- */
+async function ekranSoru(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Yükleniyor…</div>`;
+  const {data:sorular} = await sb.from("soru").select("*")
+    .eq("user_id",BEN.id).order("created_at",{ascending:false});
+
+  // cevapları okundu işaretle
+  const okunmamis = (sorular||[]).filter(s=>s.durum==="cevaplandi" && !s.okundu);
+  if(okunmamis.length){
+    await sb.from("soru").update({okundu:true})
+      .in("id", okunmamis.map(s=>s.id));
+    YENI_CEVAP = 0;
+  }
+
+  $("#icerik").innerHTML = `
+    <div class="kart">
+      <h2>Mentörüne Soru Sor</h2>
+      <p class="alt">Takıldığın bir konu, itiraz ya da portföy durumu — yaz, mentörünün önüne düşsün.</p>
+      <label>Hafta (isteğe bağlı)</label>
+      <select id="sHafta" style="max-width:180px">
+        <option value="">Genel</option>
+        ${Array.from({length:10},(_,i)=>`<option value="${i+1}">Hafta ${i+1}</option>`).join("")}
+      </select>
+      <label>Sorun</label>
+      <textarea id="sMetin" rows="4"
+        placeholder="Örn: Satıcı komisyonu %2'ye düşürmemi istiyor, nasıl cevap vermeliyim?"></textarea>
+      <button class="btn" onclick="soruGonder()">Gönder</button>
+      <div id="soruMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
+      <h2>Sorularım</h2>
+      ${(sorular||[]).length ? (sorular||[]).map(s=>`
+        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
+            <span class="hafta-etiket">${s.hafta? "H"+s.hafta : "Genel"}</span>
+            <span style="font-size:11px;color:var(--gray)">${tarihYaz(s.created_at)}</span>
+          </div>
+          <div style="font-size:14px;white-space:pre-wrap">${esc(s.metin)}</div>
+          ${s.durum==="cevaplandi"
+            ? `<div class="yorum-kutu" style="margin-top:10px">
+                 <b>MENTÖR CEVABI · ${tarihYaz(s.cevap_tarih)}</b>
+                 <div style="white-space:pre-wrap">${esc(s.cevap)}</div></div>`
+            : `<div style="margin-top:10px;font-size:12.5px;color:var(--orange);font-weight:600">
+                 ⏳ Cevap bekleniyor</div>`}
+        </div>`).join("")
+        : "<p class='alt'>Henüz soru sormadın.</p>"}
+    </div>`;
+}
+
+async function soruGonder(){
+  const m = $("#soruMesaj");
+  const metin = $("#sMetin").value.trim();
+  if(metin.length < 5){ m.className="uyari hata"; m.textContent="Lütfen sorunu yaz."; return; }
+  const {error} = await sb.from("soru").insert({
+    user_id: BEN.id, metin,
+    hafta: $("#sHafta").value ? +$("#sHafta").value : null
+  });
+  if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
+  m.className="uyari ok"; m.textContent="Soru gönderildi. Mentörün cevaplayınca burada görünecek.";
+  setTimeout(()=>ekranSoru(), 1000);
+}
+
+/* ---------- YÖNETİM: Sorular ---------- */
+async function ekranSorular(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Sorular yükleniyor…</div>`;
+  const [{data:sorular}, {data:kisiler}] = await Promise.all([
+    sb.from("soru").select("*").order("durum").order("created_at",{ascending:false}),
+    sb.from("profiles").select("id,ad")
+  ]);
+  const adBul = id => (kisiler||[]).find(k=>k.id===id)?.ad || "—";
+  const acik = (sorular||[]).filter(s=>s.durum==="acik");
+  const kapali = (sorular||[]).filter(s=>s.durum!=="acik");
+
+  const kart = (s,cevaplanabilir) => `
+    <div style="border:1px solid ${s.durum==="acik"?"var(--orange)":"var(--border)"};
+         border-radius:10px;padding:14px;margin-bottom:10px;background:#fff">
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
+        <b style="font-size:14px">${esc(adBul(s.user_id))}</b>
+        <span style="font-size:11px;color:var(--gray)">
+          ${s.hafta? "Hafta "+s.hafta+" · " : ""}${tarihYaz(s.created_at)}</span>
+      </div>
+      <div style="font-size:14px;white-space:pre-wrap;margin-bottom:10px">${esc(s.metin)}</div>
+      ${s.durum==="cevaplandi"
+        ? `<div class="yorum-kutu"><b>CEVAP · ${tarihYaz(s.cevap_tarih)}</b>
+             <div style="white-space:pre-wrap">${esc(s.cevap)}</div></div>`
+        : ""}
+      ${cevaplanabilir? `
+        <textarea id="c_${s.id}" rows="3"
+          placeholder="Cevabını yaz…">${s.durum==="cevaplandi"? esc(s.cevap):""}</textarea>
+        <button class="btn ince" style="margin-top:8px"
+          onclick="soruCevapla(${s.id})">${s.durum==="cevaplandi"?"Cevabı Güncelle":"Cevapla"}</button>`
+        : ""}
+    </div>`;
+
+  $("#icerik").innerHTML = `
+    <div class="kutucuklar">
+      <div class="kutu"><span>Cevap Bekleyen</span>
+        <b style="color:${acik.length?"var(--orange)":"var(--green)"}">${acik.length}</b></div>
+      <div class="kutu"><span>Cevaplanan</span><b>${kapali.length}</b></div>
+    </div>
+    <div class="kart">
+      <h2>Cevap Bekleyenler</h2>
+      ${acik.length? acik.map(s=>kart(s,duzenlerMi())).join("")
+        : "<p class='alt'>Bekleyen soru yok.</p>"}
+      <div id="cevapMesaj" class="uyari"></div>
+    </div>
+    ${kapali.length? `<div class="kart"><h2>Cevaplananlar</h2>
+      ${kapali.map(s=>kart(s,duzenlerMi())).join("")}</div>`:""}`;
+}
+
+async function soruCevapla(id){
+  const el = $("#c_"+id); if(!el) return;
+  const cevap = el.value.trim();
+  const m = $("#cevapMesaj");
+  if(cevap.length < 2){ m.className="uyari hata"; m.textContent="Cevap boş olamaz."; return; }
+  const {error} = await sb.from("soru").update({
+    cevap, durum:"cevaplandi", cevaplayan:BEN.id,
+    cevap_tarih:new Date().toISOString(), okundu:false
+  }).eq("id",id);
+  if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
+  const {data:grp} = await sb.from("grup").select("*").order("id");
+  GRUPLAR_LISTE = grp || [];
+
+  await sayaclariYenile();
+  sekmeleriKur();
+  sekmeAc("sorular");
+}
+
+/* ==========================================================
+   EĞİTİM MERKEZİ
+   ========================================================== */
+function ytKimlik(url){
+  const m = String(url).match(/(?:youtu\.be\/|v=|embed\/|shorts\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+async function ekranKaynaklar(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Kaynaklar yükleniyor…</div>`;
+  const {data:kaynaklar, error} = await sb.from("kaynak").select("*")
+    .eq("aktif",true).order("hafta",{nullsFirst:true}).order("sira").order("id");
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)}</p></div>`; return;
+  }
+
+  const gruplar = {};
+  (kaynaklar||[]).forEach(k=>{
+    const g = k.hafta ? `Hafta ${k.hafta}` : "Genel Kaynaklar";
+    (gruplar[g] = gruplar[g] || []).push(k);
+  });
+
+  const kartHtml = k => {
+    if(k.tur === "video"){
+      const id = ytKimlik(k.url);
+      return `<div style="border:1px solid var(--border);border-radius:10px;
+                overflow:hidden;margin-bottom:12px;background:#fff">
+        ${id? `<div style="position:relative;padding-top:56.25%">
+            <iframe src="https://www.youtube.com/embed/${id}" loading="lazy"
+              style="position:absolute;top:0;left:0;width:100%;height:100%;border:0"
+              allowfullscreen title="${esc(k.baslik)}"></iframe></div>`
+          : `<div style="padding:14px"><a href="${esc(k.url)}" target="_blank"
+               rel="noopener" style="color:var(--navy);font-weight:600">Videoyu aç →</a></div>`}
+        <div style="padding:12px 14px">
+          <div style="font-weight:600;font-size:14px">${esc(k.baslik)}</div>
+          ${k.aciklama? `<div style="font-size:12.5px;color:var(--gray);margin-top:4px">
+            ${esc(k.aciklama)}</div>`:""}
+        </div></div>`;
+    }
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;
+              border:1px solid var(--border);border-radius:10px;padding:12px 14px;
+              margin-bottom:8px;background:#fff">
+        <div style="min-width:0">
+          <div style="font-weight:600;font-size:14px">${esc(k.baslik)}</div>
+          ${k.aciklama? `<div style="font-size:12.5px;color:var(--gray);margin-top:3px">
+            ${esc(k.aciklama)}</div>`:""}
+        </div>
+        <a href="${esc(k.url)}" target="_blank" rel="noopener" download
+           style="flex-shrink:0;background:var(--navy);color:#fff;text-decoration:none;
+           padding:9px 14px;border-radius:8px;font-size:13px;font-weight:600">İndir</a>
+      </div>`;
+  };
+
+  const govde = Object.keys(gruplar).length
+    ? Object.entries(gruplar).map(([baslik,liste])=>`
+        <div class="kart">
+          <h2>${esc(baslik)}</h2>
+          <div style="margin-top:12px">${liste.map(kartHtml).join("")}</div>
+        </div>`).join("")
+    : `<div class="kart"><h2>Henüz kaynak eklenmemiş</h2>
+       <p class="alt">${duzenlerMi()
+         ? "Aşağıdaki bölümden form ve video ekleyebilirsin."
+         : "Yöneticin kaynak ekledikçe burada görünecek."}</p></div>`;
+
+  $("#icerik").innerHTML = govde + (duzenlerMi()? kaynakYonetimHtml() : "");
+  if(duzenlerMi()) kaynakListeYukle();
+}
+
+function kaynakYonetimHtml(){
+  return `
+    <div class="kart">
+      <h2>Kaynak Ekle</h2>
+      <p class="alt">Form/doküman yükle veya YouTube videosu bağla.</p>
+      <div class="metrik-grid">
+        <div class="alan"><label>Tür</label>
+          <select id="kTur" onchange="kaynakTurDegisti()">
+            <option value="dosya">Dosya / Form</option>
+            <option value="video">Video (YouTube)</option>
+          </select></div>
+        <div class="alan"><label>Hafta (boş = genel)</label>
+          <select id="kHafta"><option value="">Genel</option>
+            ${Array.from({length:10},(_,i)=>`<option value="${i+1}">Hafta ${i+1}</option>`).join("")}
+          </select></div>
+      </div>
+      <label>Başlık</label>
+      <input type="text" id="kBaslik" placeholder="Örn: Satılık Daire Görüşme Checklist">
+      <label>Açıklama (isteğe bağlı)</label>
+      <input type="text" id="kAciklama" placeholder="Kısa not">
+
+      <div id="kDosyaAlan">
+        <label>Dosya seç (PDF, Word, Excel…)</label>
+        <input type="file" id="kDosya">
+        <div class="hedef-not">Yüklemek istemiyorsan aşağıya bağlantı da yapıştırabilirsin.</div>
+      </div>
+      <label id="kUrlEtiket">Bağlantı (isteğe bağlı)</label>
+      <input type="text" id="kUrl" placeholder="https://...">
+
+      <button class="btn" onclick="kaynakEkle()">Kaynağı Ekle</button>
+      <div id="kaynakMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
+      <h2>Mevcut Kaynaklar</h2>
+      <div id="kaynakListe"><div class="yukleniyor">Yükleniyor…</div></div>
+    </div>`;
+}
+
+function kaynakTurDegisti(){
+  const video = $("#kTur").value === "video";
+  $("#kDosyaAlan").style.display = video ? "none" : "block";
+  $("#kUrlEtiket").textContent = video ? "YouTube bağlantısı" : "Bağlantı (isteğe bağlı)";
+}
+
+async function kaynakEkle(){
+  const m = $("#kaynakMesaj");
+  const baslik = $("#kBaslik").value.trim();
+  const tur = $("#kTur").value;
+  if(!baslik){ m.className="uyari hata"; m.textContent="Başlık gerekli."; return; }
+
+  let url = $("#kUrl").value.trim();
+  const dosya = $("#kDosya")?.files?.[0];
+
+  if(tur === "dosya" && dosya){
+    m.className="uyari"; m.textContent="";
+    const temiz = dosya.name.replace(/[^A-Za-z0-9._-]/g,"_");
+    const yol = `${Date.now()}_${temiz}`;
+    const {error:yErr} = await sb.storage.from("kaynaklar").upload(yol, dosya, {upsert:false});
+    if(yErr){ m.className="uyari hata"; m.textContent="Yüklenemedi: "+yErr.message; return; }
+    url = sb.storage.from("kaynaklar").getPublicUrl(yol).data.publicUrl;
+  }
+
+  if(!url){ m.className="uyari hata";
+    m.textContent = tur==="video" ? "YouTube bağlantısı gerekli." : "Dosya seç veya bağlantı gir.";
+    return; }
+
+  const {error} = await sb.from("kaynak").insert({
+    baslik, tur, url,
+    aciklama: $("#kAciklama").value.trim(),
+    hafta: $("#kHafta").value ? +$("#kHafta").value : null
+  });
+  if(error){ m.className="uyari hata"; m.textContent="Eklenemedi: "+error.message; return; }
+  m.className="uyari ok"; m.textContent="Kaynak eklendi.";
+  setTimeout(()=>ekranKaynaklar(), 900);
+}
+
+async function kaynakListeYukle(){
+  const {data} = await sb.from("kaynak").select("*").order("id",{ascending:false});
+  const el = $("#kaynakListe"); if(!el) return;
+  el.innerHTML = (data||[]).map(k=>`
+    <div class="dan-satir" style="cursor:default">
+      <div style="min-width:0">
+        <div class="ad">${k.tur==="video"?"🎬":"📄"} ${esc(k.baslik)}</div>
+        <div class="bilgi">${k.hafta? "Hafta "+k.hafta : "Genel"}${
+          k.aktif? "" : " · pasif"}</div>
+      </div>
+      <button class="btn ince gri" onclick="kaynakSil(${k.id})">Sil</button>
+    </div>`).join("") || "<p class='alt'>Kaynak yok.</p>";
+}
+
+async function kaynakSil(id){
+  if(!confirm("Bu kaynak silinsin mi?")) return;
+  await sb.from("kaynak").delete().eq("id",id);
+  ekranKaynaklar();
+}
+
+/* ==========================================================
+   MENTÖR EKRANLARI
+   ========================================================== */
+async function ekipVerisi(){
+  let sorgu = sb.from("profiles").select("*").eq("rol","danisman").eq("onay",true);
+  if(SECILI_GRUP) sorgu = sorgu.eq("grup_id", SECILI_GRUP);
+  const {data:danlar} = await sorgu.order("ad");
+  const {data:kayitlar} = await sb.from("haftalik").select("*");
+  const {data:gorevler} = await sb.from("gorev").select("user_id,tamam");
+  return (danlar||[]).map(d=>{
+    const k=(kayitlar||[]).filter(x=>x.user_id===d.id).sort((a,b)=>a.hafta-b.hafta);
+    const g=(gorevler||[]).filter(x=>x.user_id===d.id);
+    const a=analizEt(k, d.hedef_bandi);
+    const gp = g.length? g.filter(x=>x.tamam).length/g.length*100 : 0;
+    const t=kol=>k.reduce((s,x)=>s+(x[kol]||0),0);
+    const ktTop = k.length*KATILIM.length;
+    const ktVar = k.reduce((s,x)=>s+KATILIM.filter(([kk])=>x[kk]).length,0);
+    const katilim = ktTop ? ktVar/ktTop*100 : 0;
+    return {profil:d, kayitlar:k, analiz:a, gorevYuzde:gp, katilim,
+            portfoy:t("portfoy_alim"), islem:t("islem"),
+            arama:t("fsbo_arama")+t("sicak_arama"),
+            sunum:t("portfoy_sunumu"),
+            donusum: t("portfoy_sunumu")? t("portfoy_alim")/t("portfoy_sunumu")*100 : 0};
+  });
+}
+
+async function ekranEkip(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Ekip verileri yükleniyor…</div>`;
+  const {data:grp} = await sb.from("grup").select("*").order("id");
+  GRUPLAR_LISTE = grp || [];
+
+  await sayaclariYenile();
+  const ekip = await ekipVerisi();
+  if(!ekip.length){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Henüz danışman yok</h2>
+      <p class="alt">Danışmanların siteye kayıt olduğunda burada görünecekler.
+      Onlara site adresini ve ofis kodunu ver.</p></div>`; return;
+  }
+  const veriGirmeyen = ekip.filter(e=>e.analiz.hafta===0);
+  $("#icerik").innerHTML = grupSecHtml() + `
+    <div class="kutucuklar">
+      <div class="kutu"><span>Danışman</span><b>${ekip.length}</b></div>
+      <div class="kutu"><span>Toplam Portföy</span><b>${ekip.reduce((s,e)=>s+e.portfoy,0)}</b></div>
+      <div class="kutu"><span>Toplam İşlem</span><b>${ekip.reduce((s,e)=>s+e.islem,0)}</b></div>
+      <div class="kutu"><span>Veri Girmeyen</span>
+        <b style="color:${veriGirmeyen.length?"var(--red)":"var(--green)"}">${veriGirmeyen.length}</b></div>
+      <div class="kutu"><span>Bekleyen Soru</span>
+        <b style="color:${BEKLEYEN_SORU?"var(--orange)":"var(--green)"}">${BEKLEYEN_SORU}</b></div>
+      <div class="kutu"><span>Ort. Katılım</span>
+        <b style="color:${skorRenk(ekip.reduce((s,e)=>s+e.katilim,0)/ekip.length)}">${
+          (ekip.reduce((s,e)=>s+e.katilim,0)/ekip.length).toFixed(0)}%</b></div>
+    </div>
+    <div class="kart">
+      <h2>Ekip Listesi</h2>
+      <p class="alt">Detay için bir danışmana dokun.</p>
+      ${ekip.sort((a,b)=>b.analiz.genel-a.analiz.genel).map(e=>`
+        <div class="dan-satir" onclick="danAc('${e.profil.id}')">
+          <div>
+            <div class="ad">${esc(e.profil.ad)}</div>
+            <div class="bilgi">${esc(grupAdi(e.profil.grup_id))} ·
+              ${e.analiz.hafta} hafta · görev %${e.gorevYuzde.toFixed(0)} ·
+              katılım %${e.katilim.toFixed(0)}</div>
+          </div>
+          <div class="skor" style="color:${skorRenk(e.analiz.genel)}">${e.analiz.genel.toFixed(0)}%</div>
+        </div>`).join("")}
+    </div>`;
+}
+
+function danAc(id){ SECILI_DAN = id; sekmeAc("detay"); }
+
+async function ekranDetay(){
+  const ekip = await ekipVerisi();
+  if(!ekip.length){ $("#icerik").innerHTML=`<div class="kart"><h2>Danışman yok</h2></div>`; return; }
+  if(!SECILI_DAN) SECILI_DAN = ekip[0].profil.id;
+  const e = ekip.find(x=>x.profil.id===SECILI_DAN) || ekip[0];
+
+  $("#icerik").innerHTML = `
+    <div class="kart">
+      <label>Danışman seç</label>
+      <select id="danSec" onchange="SECILI_DAN=this.value;ekranDetay()">
+        ${ekip.map(x=>`<option value="${x.profil.id}" ${x.profil.id===e.profil.id?"selected":""}>
+          ${esc(x.profil.ad)}</option>`).join("")}
+      </select>
+    </div>
+    <div class="kutucuklar">
+      <div class="kutu"><span>Genel Başarı</span><b style="color:${skorRenk(e.analiz.genel)}">${e.analiz.genel.toFixed(0)}%</b></div>
+      <div class="kutu"><span>Görev</span><b style="color:${skorRenk(e.gorevYuzde)}">${e.gorevYuzde.toFixed(0)}%</b></div>
+      <div class="kutu"><span>Portföy</span><b>${e.portfoy}</b></div>
+      <div class="kutu"><span>İşlem</span><b>${e.islem}</b></div>
+      <div class="kutu"><span>Sunum→Yetki</span><b style="color:${skorRenk(e.donusum)}">${e.donusum.toFixed(0)}%</b></div>
+      <div class="kutu"><span>Katılım</span><b style="color:${skorRenk(e.katilim)}">${e.katilim.toFixed(0)}%</b></div>
+    </div>
+    <div class="kart">
+      <h2>Hedefe Ulaşma</h2>
+      <canvas id="cBar"></canvas>
+    </div>
+    <div class="kart analiz">
+      <h2>Otomatik Değerlendirme</h2>
+      <div id="analizMetin"></div>
+    </div>
+    ${!duzenlerMi()? `
+    <div class="kart">
+      <h2>Görev Durumu</h2>
+      <p class="alt">Görüntüleme yetkisi — işaretleme yapılamaz.</p>
+      <div style="font-size:15px;font-weight:700;color:${skorRenk(e.gorevYuzde)}">
+        Tamamlanma: %${e.gorevYuzde.toFixed(0)}</div>
+    </div>` : ""}
+
+    <div class="kart">
+      <h2>Haftalık Kayıtlar</h2>
+      <p class="alt">Yorum yazmak için haftanın yanındaki alanı kullan.</p>
+      <div class="tablo-kaydir">
+        <table>
+          <tr><th>H</th>${METRIKLER.map(([,ad])=>`<th>${ad.split(" ")[0]}</th>`).join("")}
+              <th>Katılım</th><th>Not</th></tr>
+          ${e.kayitlar.map(k=>`<tr><td><b>${k.hafta}</b></td>
+            ${METRIKLER.map(([kol])=>`<td>${k[kol]||0}</td>`).join("")}
+            <td>${KATILIM.filter(([kk])=>k[kk]).length}/${KATILIM.length}</td>
+            <td style="font-size:12px;color:var(--gray)">${esc(k.aciklama||"")}</td></tr>`).join("")
+            || `<tr><td colspan="14" style="color:var(--gray)">Henüz veri girmemiş.</td></tr>`}
+        </table>
+      </div>
+    </div>
+    ${duzenlerMi()? `
+    <div class="kart">
+      <h2>Danışman Adına Veri Gir / Düzelt</h2>
+      <p class="alt">Danışman girmediyse veya hatalı girdiyse buradan düzeltebilirsin.
+      Yaptığın değişiklik danışmanın ekranına da yansır.</p>
+      <div class="metrik-grid">
+        <div class="alan"><label>Hafta</label>
+          <select id="dHafta" onchange="danVeriYukle()">${Array.from({length:10},(_,i)=>
+            `<option value="${i+1}">Hafta ${i+1}</option>`).join("")}</select></div>
+        <div class="alan"><label>Tarih</label>
+          <input type="date" id="dTarih" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      ${GRUPLAR.map(([baslik,kols])=>`
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px">${baslik}</div>
+          <div class="metrik-grid">
+            ${kols.map(k=>`<div class="alan"><label>${ETIKET[k]}</label>
+              <input type="number" min="0" id="d_${k}" value="0"></div>`).join("")}
+          </div>
+        </div>`).join("")}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px">Katılım</div>
+        ${KATILIM.map(([k,ad])=>`
+          <div class="gorev-satir" style="border:none;padding:6px 2px">
+            <input type="checkbox" id="d_${k}"><label for="d_${k}">${ad}</label></div>`).join("")}
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px">Pazarlama</div>
+        ${PAZARLAMA.map(([k,ad])=>`
+          <div class="gorev-satir" style="border:none;padding:6px 2px">
+            <input type="checkbox" id="d_${k}"><label for="d_${k}">${ad}</label></div>`).join("")}
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <label>Danışmanın hafta notu</label>
+        <textarea id="d_aciklama" rows="2"></textarea>
+        <label>Katılım mazereti</label>
+        <input type="text" id="d_kt_not">
+        <div class="hedef-not">Danışmanın yazdığı metin gelir; gerekiyorsa düzeltebilirsin.</div>
+      </div>
+      <button class="btn" onclick="danVeriKaydet()">Danışman Adına Kaydet</button>
+      <div id="danVeriMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
+      <h2>Görevleri İşaretle</h2>
+      <p class="alt">Danışmanın görevlerini buradan da işaretleyebilirsin.</p>
+      <div id="danGorevListe"><div class="yukleniyor">Yükleniyor…</div></div>
+    </div>` : ""}
+
+    ${(duzenlerMi() && e.kayitlar.length)? `
+    <div class="kart">
+      <h2>Haftalık Yorum Yaz</h2>
+      <p class="alt">Danışman bu yorumu kendi ekranında görecek.</p>
+      <label>Hafta</label>
+      <select id="yHafta" onchange="yorumYukle()">
+        ${e.kayitlar.map(k=>`<option value="${k.hafta}">Hafta ${k.hafta}</option>`).join("")}
+      </select>
+      <label>Yorum</label>
+      <textarea id="yMetin" rows="4" placeholder="Bu hafta için geri bildirimin…"></textarea>
+      <button class="btn" onclick="yorumKaydet()">Yorumu Kaydet</button>
+      <div id="yorumMesaj" class="uyari"></div>
+    </div>`:""}`;
+
+  barCiz("cBar", Object.entries(e.analiz.detay).map(([k,v])=>[ETIKET[k],v[2]]), "%");
+
+  const guclu=[],zayif=[];
+  Object.entries(e.analiz.detay).forEach(([k,v])=>{
+    if(v[2]>=100) guclu.push(`${ETIKET[k]} — %${v[2].toFixed(0)}`);
+    else if(v[2]<60) zayif.push(`${ETIKET[k]} — %${v[2].toFixed(0)}`);
+  });
+  const yorum=[];
+  if(e.analiz.hafta===0) yorum.push("Hiç veri girmemiş — önce sisteme giriş alışkanlığı kazandırılmalı.");
+  if(e.gorevYuzde<50) yorum.push("Program görevlerinin yarısından azı tamam — görev takibi sıkılaştırılmalı.");
+  const d = e.analiz.detay;
+  if((d.fsbo_arama?.[2]??100)<60) yorum.push("FSBO arama hacmi düşük. Huninin girişi dar, her şey bunun üzerine kuruluyor.");
+  if((d.sicak_arama?.[2]??100)<50) yorum.push("Etki çevresi ihmal edilmiş — en ucuz portföy kaynağı.");
+  if((d.fsbo_arama?.[2]??0)>=80 && (d.ulasilan?.[2]??100)<50)
+    yorum.push("Arıyor ama ulaşamıyor — arama saatlerini değiştirmeli (akşam 18-20 dene).");
+  if((d.ulasilan?.[2]??0)>=80 && (d.randevu_talebi?.[2]??100)<50)
+    yorum.push("Görüşüyor ama randevu istemiyor — kapanış cümlesi çalışılmalı.");
+  if((d.randevu_talebi?.[2]??0)>=80 && (d.alinan_randevu?.[2]??100)<50)
+    yorum.push("Randevu istiyor ama alamıyor — itiraz yönetimi ve alternatifli soru provası gerekli.");
+  if((d.portfoy_sunumu?.[2]??100)<60 && (d.alinan_randevu?.[2]??0)>=80)
+    yorum.push("Randevuya gidiyor ama sunuma dönmüyor — LP hazırlığı eksik olabilir.");
+  if(e.sunum>0 && e.donusum<40) yorum.push("Sunum yapıyor ama yetki alamıyor — fiyatlama ve kapanış adımı sorgulanmalı.");
+  if(!yorum.length) yorum.push("Dengeli ilerliyor. Mevcut tempo korunmalı.");
+
+  $("#analizMetin").innerHTML =
+    `<h4>GÜÇLÜ</h4>${guclu.length?guclu.map(s=>`<div class="iyi">✔ ${s}</div>`).join(""):"<div>—</div>"}
+     <h4>ZAYIF</h4>${zayif.length?zayif.map(s=>`<div class="kotu">✖ ${s}</div>`).join(""):"<div class='iyi'>Kritik eksik yok.</div>"}
+     <h4>ÖNERİ</h4>${yorum.map(s=>`<div>• ${s}</div>`).join("")}`;
+
+  if(duzenlerMi()){
+    if(e.kayitlar.length) yorumYukle();
+    danVeriYukle();
+    danGorevYukle();
+  }
+}
+
+async function danVeriYukle(){
+  const hafta = +$("#dHafta").value;
+  const {data} = await sb.from("haftalik").select("*")
+    .eq("user_id",SECILI_DAN).eq("hafta",hafta).maybeSingle();
+  METRIKLER.forEach(([k])=> $("#d_"+k).value = data? (data[k]||0) : 0);
+  [...PAZARLAMA,...KATILIM].forEach(([k])=> $("#d_"+k).checked = data? !!data[k] : false);
+  $("#d_aciklama").value = data?.aciklama || "";
+  $("#d_kt_not").value   = data?.kt_not   || "";
+  if(data?.tarih) $("#dTarih").value = data.tarih;
+}
+
+async function danVeriKaydet(){
+  const kayit = {user_id:SECILI_DAN, hafta:+$("#dHafta").value, tarih:$("#dTarih").value,
+                 updated_at:new Date().toISOString()};
+  METRIKLER.forEach(([k])=> kayit[k] = +($("#d_"+k).value||0));
+  [...PAZARLAMA,...KATILIM].forEach(([k])=> kayit[k] = $("#d_"+k).checked);
+  kayit.aciklama = $("#d_aciklama").value.trim();
+  kayit.kt_not   = $("#d_kt_not").value.trim();
+  const {error} = await sb.from("haftalik").upsert(kayit,{onConflict:"user_id,hafta"});
+  const m=$("#danVeriMesaj");
+  if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
+  else { m.className="uyari ok"; m.textContent="Kaydedildi.";
+         setTimeout(()=>{m.className="uyari"; ekranDetay();},1200); }
+}
+
+async function danGorevYukle(){
+  const {data:gorevler} = await sb.from("gorev").select("*")
+    .eq("user_id",SECILI_DAN).order("hafta").order("id");
+  const el = $("#danGorevListe"); if(!el) return;
+  el.innerHTML = (gorevler||[]).map(g=>`
+    <div class="gorev-satir ${g.tamam?"bitti":""}" id="dg_${g.id}">
+      <input type="checkbox" ${g.tamam?"checked":""} onchange="danGorevDegistir(${g.id},this.checked)">
+      <label><span class="hafta-etiket">H${g.hafta}</span>${esc(g.gorev)}</label>
+    </div>`).join("") || "<p class='alt'>Görev yok.</p>";
+}
+
+async function danGorevDegistir(id, durum){
+  await sb.from("gorev").update({tamam:durum,
+    tamam_tarih: durum? new Date().toISOString().slice(0,10) : null}).eq("id",id);
+  $("#dg_"+id).classList.toggle("bitti",durum);
+}
+
+async function yorumYukle(){
+  const hafta = +$("#yHafta").value;
+  const {data} = await sb.from("haftalik").select("mentor_yorum")
+    .eq("user_id",SECILI_DAN).eq("hafta",hafta).maybeSingle();
+  $("#yMetin").value = data?.mentor_yorum || "";
+}
+
+async function yorumKaydet(){
+  const hafta = +$("#yHafta").value;
+  const {error} = await sb.from("haftalik")
+    .update({mentor_yorum:$("#yMetin").value.trim()})
+    .eq("user_id",SECILI_DAN).eq("hafta",hafta);
+  const m=$("#yorumMesaj");
+  if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
+  else { m.className="uyari ok"; m.textContent="Yorum kaydedildi."; setTimeout(()=>m.className="uyari",4000); }
+}
+
+async function ekranKiyas(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Hesaplanıyor…</div>`;
+  const ekip = await ekipVerisi();
+  if(!ekip.length){ $("#icerik").innerHTML=`<div class="kart"><h2>Danışman yok</h2></div>`; return; }
+  $("#icerik").innerHTML = grupSecHtml() + `
+    <div class="kart">
+      <h2>Karşılaştırma</h2>
+      <label>Görünüm</label>
+      <select id="kMod" style="max-width:280px" onchange="ekranKiyas()">
+        <option value="kisi">Danışman bazında</option>
+        <option value="grup" ${KIYAS_MOD==="grup"?"selected":""}>Ekipler arası kıyas</option>
+      </select>
+      <label>Ölçüt</label>
+      <select id="olcut" style="max-width:280px">
+        <option value="genel">Genel Başarı %</option>
+        <option value="gorev">Görev Tamamlama %</option>
+        ${METRIKLER.map(([k,ad])=>`<option value="m_${k}">${ad}</option>`).join("")}
+      </select>
+      <canvas id="cKiyas" style="margin-top:14px"></canvas>
+    </div>
+    <div class="kart">
+      <h2>Sıralama</h2>
+      <div class="tablo-kaydir">
+        <table id="kiyasTablo">
+          <tr><th>#</th><th>Danışman</th><th>Başarı</th><th>Görev</th>
+              <th>Portföy</th><th>İşlem</th><th>Sunum→Yetki</th><th>Arama</th></tr>
+        </table>
+      </div>
+    </div>`;
+
+  const ciz = () => {
+    KIYAS_MOD = $("#kMod").value;
+    const o=$("#olcut").value;
+    const deger = e => o==="genel" ? e.analiz.genel
+                  : o==="gorev" ? e.gorevYuzde
+                  : e.kayitlar.reduce((s,x)=>s+(x[o.slice(2)]||0),0);
+    const birim = (o==="genel"||o==="gorev") ? "%" : "";
+
+    if(KIYAS_MOD==="grup"){
+      const gruplar = {};
+      ekip.forEach(e=>{
+        const ad = grupAdi(e.profil.grup_id);
+        (gruplar[ad] = gruplar[ad] || []).push(e);
+      });
+      const satir = Object.entries(gruplar).map(([ad,uyeler])=>{
+        const ort = k => uyeler.reduce((s,u)=>s+k(u),0)/uyeler.length;
+        return {ad, kisi:uyeler.length,
+                deger: birim==="%" ? ort(deger) : uyeler.reduce((s,u)=>s+deger(u),0),
+                basari: ort(u=>u.analiz.genel), gorev: ort(u=>u.gorevYuzde),
+                katilim: ort(u=>u.katilim),
+                portfoy: uyeler.reduce((s,u)=>s+u.portfoy,0),
+                islem: uyeler.reduce((s,u)=>s+u.islem,0)};
+      }).sort((a,b)=>b.deger-a.deger);
+
+      barCiz("cKiyas", satir.map(g=>[`${g.ad} (${g.kisi})`, g.deger]), birim);
+      $("#kiyasTablo").innerHTML =
+        `<tr><th>#</th><th>Ekip</th><th>Kişi</th><th>Başarı</th><th>Görev</th>
+             <th>Katılım</th><th>Portföy</th><th>İşlem</th></tr>` +
+        satir.map((g,i)=>`<tr${i===0?' style="background:#FFF6E0"':''}>
+          <td><b>${i+1}</b></td><td>${esc(g.ad)}</td><td>${g.kisi}</td>
+          <td style="color:${skorRenk(g.basari)}"><b>${g.basari.toFixed(0)}%</b></td>
+          <td>${g.gorev.toFixed(0)}%</td><td>${g.katilim.toFixed(0)}%</td>
+          <td>${g.portfoy}</td><td>${g.islem}</td></tr>`).join("");
+      return;
+    }
+
+    const sirali=[...ekip].sort((a,b)=>deger(b)-deger(a));
+    barCiz("cKiyas", sirali.map(e=>[e.profil.ad, deger(e)]), birim);
+    $("#kiyasTablo").innerHTML =
+      `<tr><th>#</th><th>Danışman</th><th>Başarı</th><th>Görev</th>
+           <th>Portföy</th><th>İşlem</th><th>Sunum→Yetki</th><th>Arama</th></tr>` +
+      sirali.map((e,i)=>`<tr${i===0?' style="background:#FFF6E0"':''}>
+        <td><b>${i+1}</b></td><td>${esc(e.profil.ad)}</td>
+        <td style="color:${skorRenk(e.analiz.genel)}"><b>${e.analiz.genel.toFixed(0)}%</b></td>
+        <td>${e.gorevYuzde.toFixed(0)}%</td><td>${e.portfoy}</td><td>${e.islem}</td>
+        <td>${e.donusum.toFixed(0)}%</td><td>${e.arama}</td></tr>`).join("");
+  };
+  $("#olcut").onchange = ciz; ciz();
+}
+
+async function ekranAyar(){
+  const {data:hepsi} = await sb.from("profiles").select("*").order("ad");
+  const danlar = (hepsi||[]).filter(d=>d.rol==="danisman");
+  const bekleyen = (hepsi||[]).filter(d=>!d.onay);
+  $("#icerik").innerHTML = `
+    ${bekleyen.length? `
+    <div class="kart" style="border-color:var(--orange)">
+      <h2>Onay Bekleyenler (${bekleyen.length})</h2>
+      <p class="alt">Bu kişiler kayıt oldu ama henüz giremiyor.</p>
+      ${bekleyen.map(d=>`
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px">
+          <div style="font-weight:600;font-size:14px">${esc(d.ad)}</div>
+          <div style="font-size:12px;color:var(--gray);margin:3px 0 8px">
+            ${esc(grupAdi(d.grup_id))} · ${esc(d.bolge||"—")}</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <select id="or_${d.id}" style="max-width:200px;flex:1">
+              ${Object.keys(ROLLER).map(r=>
+                `<option value="${r}" ${d.rol===r?"selected":""}>${ROLLER[r].ad}</option>`).join("")}
+            </select>
+            <button class="btn ince" onclick="onayla('${d.id}',true)">Onayla</button>
+            <button class="btn ince gri" onclick="onayla('${d.id}',false)">Sil</button>
+          </div>
+          <div style="font-size:11.5px;color:var(--gray);margin-top:6px">
+            Kendi seçtiği: <b>${esc(ROLLER[d.rol]?.ad || d.rol)}</b> — gerekirse değiştir
+          </div>
+        </div>`).join("")}
+      <div id="onayMesaj" class="uyari"></div>
+    </div>`:""}
+
+    <div class="kart">
+      <h2>Ekipler / Dönemler</h2>
+      <p class="alt">Yeni ekip aldığında burada yeni bir dönem aç, kodunu onlara ver.</p>
+      ${GRUPLAR_LISTE.map(g=>`
+        <div class="dan-satir" style="cursor:default">
+          <div><div class="ad">${esc(g.ad)}</div>
+            <div class="bilgi">Kod: <b>${esc(g.kod)}</b> ·
+              ${(hepsi||[]).filter(d=>d.grup_id===g.id).length} kişi</div></div>
+          <select style="max-width:130px" onchange="grupDurum(${g.id},this.value)">
+            <option value="aktif" ${g.durum==="aktif"?"selected":""}>Kayıt açık</option>
+            <option value="tamamlandi" ${g.durum!=="aktif"?"selected":""}>Kapalı</option>
+          </select>
+        </div>`).join("")}
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+        <div class="metrik-grid">
+          <div class="alan"><label>Yeni ekip adı</label>
+            <input type="text" id="gAd" placeholder="2. Dönem — Mart 2027"></div>
+          <div class="alan"><label>Kayıt kodu</label>
+            <input type="text" id="gKod" placeholder="EKSEN2027"></div>
+        </div>
+        <button class="btn" onclick="grupEkle()">Ekip Oluştur</button>
+        <div id="grupMesaj" class="uyari"></div>
+      </div>
+    </div>
+
+    <div class="kart">
+      <h2>Kullanıcı Rolleri</h2>
+      <p class="alt">Siteye kayıt olan herkes önce "Danışman" gelir.
+      Ofis yöneticisi veya mentör olacak kişiyi buradan yükselt.</p>
+      ${(hepsi||[]).map(d=>`
+        <div class="dan-satir" style="cursor:default">
+          <div><div class="ad">${esc(d.ad)}${d.onay?"":" ⏳"}</div>
+            <div class="bilgi">${esc(grupAdi(d.grup_id))} · ${esc(d.bolge||"—")}</div></div>
+          <select style="max-width:160px" ${d.id===BEN.id?"disabled":""}
+                  onchange="rolDegistir('${d.id}',this.value)">
+            ${Object.keys(ROLLER).map(r=>
+              `<option value="${r}" ${d.rol===r?"selected":""}>${ROLLER[r].ad}</option>`).join("")}
+          </select>
+        </div>`).join("")}
+      <div id="rolMesaj" class="uyari"></div>
+      <div style="margin-top:12px;background:var(--light);padding:12px;border-radius:8px;font-size:12.5px;line-height:1.8">
+        <b>Danışman</b> — sadece kendi verisini görür ve girer<br>
+        <b>Recruiter</b> — tüm ekibi görür, düzenleyemez<br>
+        <b>Gelişim Koçu</b> — görür + veri/görev düzenler, yorum yazar<br>
+        <b>Ofis Müdürü</b> — hepsi + hedef bantları ve roller<br>
+        <b>Broker</b> — tam yetki
+      </div>
+    </div>
+
+    <div class="kart">
+      <h2>Danışman Hedef Bantları</h2>
+      <p class="alt">Kitaptaki Ana Metrik Tablosu'na göre her danışmana bir bant ata.
+      Yeni başlayan Taban'da olmalı; tempo tuttukça yükselt.</p>
+      ${(danlar||[]).map(d=>`
+        <div class="dan-satir" style="cursor:default">
+          <div><div class="ad">${esc(d.ad)}</div>
+            <div class="bilgi">${esc(d.bolge||"bölge yok")}</div></div>
+          <select style="max-width:150px" onchange="bantDegistir('${d.id}',this.value)">
+            ${["taban","gercekci","yildiz"].map(b=>
+              `<option value="${b}" ${(d.hedef_bandi||"taban")===b?"selected":""}>${BANT_ADI[b]}</option>`).join("")}
+          </select>
+        </div>`).join("") || "<p class='alt'>Henüz danışman yok.</p>"}
+      <div id="bantMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
+      <h2>Aylık Hedefler (Ana Metrik Tablosu)</h2>
+      <p class="alt">Kitaptaki rakamlar hazır geldi. Ofis temposuna göre değiştirebilirsin.</p>
+      <div class="tablo-kaydir">
+        <table>
+          <tr><th>Metrik</th><th>Taban</th><th>Gerçekçi</th><th>Yıldız</th></tr>
+          ${METRIKLER.map(([k,ad])=>{
+            const h=HEDEF[k]||{taban:0,gercekci:0,yildiz:0};
+            return `<tr><td>${ad}</td>
+              <td><input type="number" min="0" id="h_${k}_taban" value="${h.taban||0}" style="width:70px;padding:6px"></td>
+              <td><input type="number" min="0" id="h_${k}_gercekci" value="${h.gercekci||0}" style="width:70px;padding:6px"></td>
+              <td><input type="number" min="0" id="h_${k}_yildiz" value="${h.yildiz||0}" style="width:70px;padding:6px"></td></tr>`;
+          }).join("")}
+        </table>
+      </div>
+      <button class="btn" onclick="hedefKaydet()">Hedefleri Kaydet</button>
+      <div id="hedefMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
+      <h2>Danışmanları Davet Et</h2>
+      <p class="alt">Danışmanlarına şu bilgileri gönder:</p>
+      <div style="background:var(--light);padding:14px;border-radius:8px;font-size:14px;line-height:1.7">
+        <b>Site adresi:</b> ${location.origin}${location.pathname}<br>
+        <b>Ofis kodu:</b> <span id="ofisKodu">…</span><br><br>
+        Kayıt ol → her hafta sonu rakamlarını gir.
+      </div>
+    </div>`;
+  const {data} = await sb.from("ayar").select("deger").eq("anahtar","ofis_kodu").single();
+  if($("#ofisKodu")) $("#ofisKodu").textContent = data?.deger || "—";
+}
+
+async function onayla(id, kabul){
+  const m=$("#onayMesaj");
+  if(kabul){
+    const secilenRol = document.getElementById("or_"+id)?.value;
+    const guncelle = {onay:true};
+    if(secilenRol) guncelle.rol = secilenRol;
+    const {error} = await sb.from("profiles").update(guncelle).eq("id",id);
+    if(error){ m.className="uyari hata"; m.textContent="Onaylanamadı: "+error.message; return; }
+
+    // Danışmana yükseltildiyse ve görevi yoksa şablonu ata
+    if(secilenRol === "danisman"){
+      const {count} = await sb.from("gorev")
+        .select("id",{count:"exact",head:true}).eq("user_id",id);
+      if(!count){
+        const {data:sablon} = await sb.from("gorev_sablon").select("hafta,gorev");
+        if(sablon?.length){
+          await sb.from("gorev").insert(
+            sablon.map(s=>({user_id:id, hafta:s.hafta, gorev:s.gorev})));
+        }
+      }
+    }
+  } else {
+    if(!confirm("Bu kayıt silinsin mi?")) return;
+    const {error} = await sb.from("profiles").delete().eq("id",id);
+    if(error){ m.className="uyari hata"; m.textContent="Silinemedi: "+error.message; return; }
+  }
+  ekranAyar();
+}
+
+async function grupEkle(){
+  const m=$("#grupMesaj");
+  const ad=$("#gAd").value.trim(), kod=$("#gKod").value.trim().toUpperCase();
+  if(!ad||!kod){ m.className="uyari hata"; m.textContent="Ad ve kod gerekli."; return; }
+  const {error} = await sb.from("grup").insert({ad, kod});
+  if(error){ m.className="uyari hata"; m.textContent="Eklenemedi: "+error.message; return; }
+  const {data:grp} = await sb.from("grup").select("*").order("id");
+  GRUPLAR_LISTE = grp || [];
+  ekranAyar();
+}
+
+async function grupDurum(id, durum){
+  await sb.from("grup").update({durum}).eq("id",id);
+  const {data:grp} = await sb.from("grup").select("*").order("id");
+  GRUPLAR_LISTE = grp || [];
+}
+
+async function rolDegistir(id, rol){
+  const {error} = await sb.from("profiles").update({rol}).eq("id",id);
+  const m=$("#rolMesaj");
+  if(error){ m.className="uyari hata"; m.textContent="Değiştirilemedi: "+error.message; }
+  else { m.className="uyari ok"; m.textContent="Rol güncellendi: "+(ROL_ADI[rol]||rol);
+         setTimeout(()=>{m.className="uyari"; ekranAyar();},1200); }
+}
+
+async function bantDegistir(id, bant){
+  const {error} = await sb.from("profiles").update({hedef_bandi:bant}).eq("id",id);
+  const m=$("#bantMesaj");
+  if(error){ m.className="uyari hata"; m.textContent="Değiştirilemedi: "+error.message; }
+  else { m.className="uyari ok"; m.textContent="Hedef bandı güncellendi.";
+         setTimeout(()=>m.className="uyari",3000); }
+}
+
+async function hedefKaydet(){
+  for(const [k] of METRIKLER){
+    const kayit = {anahtar:k,
+      taban:    +($("#h_"+k+"_taban").value||0),
+      gercekci: +($("#h_"+k+"_gercekci").value||0),
+      yildiz:   +($("#h_"+k+"_yildiz").value||0)};
+    await sb.from("hedef").upsert(kayit,{onConflict:"anahtar"});
+    HEDEF[k]=kayit;
+  }
+  const m=$("#hedefMesaj"); m.className="uyari ok"; m.textContent="Hedefler güncellendi.";
+  setTimeout(()=>m.className="uyari",4000);
+}
+
+/* ---------------- başlat ---------------- */
+if(SUPABASE_URL.startsWith("BURAYA")){
+  document.body.innerHTML = `<div style="max-width:560px;margin:60px auto;padding:26px;
+    font-family:sans-serif;background:#fff;border-radius:12px;border:1px solid #C8D2E4">
+    <h2 style="color:#C00000">Kurulum tamamlanmamış</h2>
+    <p style="margin-top:12px;line-height:1.7">index.html dosyasını bir metin düzenleyici ile aç,
+    en üstteki <b>SUPABASE_URL</b> ve <b>SUPABASE_ANON</b> satırlarına
+    Supabase panelinden aldığın bilgileri yapıştır.</p>
+    <p style="margin-top:12px;color:#5A6472;font-size:14px">
+    Adım adım anlatım için <b>WEB-KURULUM-REHBERI.md</b> dosyasına bak.</p></div>`;
+} else {
+  baslat();
+}
+</script>
+</body>
+</html>
