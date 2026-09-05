@@ -52,7 +52,7 @@ nav{background:#fff;border-bottom:1px solid var(--border);display:flex;overflow-
 position:sticky;top:52px;z-index:19}
 nav button{background:none;border:none;padding:13px 18px;font-size:14px;color:var(--gray);
 white-space:nowrap;border-bottom:3px solid transparent}
-nav button.aktif{color:var(--navy);font-weight:700;border-bottom-color:var(--red)}
+nav button.aktif{color:var(--navy);font-weight:800;border-bottom-color:var(--red);background:var(--light)}
 
 main{max-width:1100px;margin:0 auto;padding:18px}
 .kart{background:#fff;border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px}
@@ -73,6 +73,8 @@ th{background:var(--navy);color:#fff;padding:9px 8px;text-align:left;font-weight
 td{padding:9px 8px;border-bottom:1px solid #EDF1F7}
 tr:nth-child(even) td{background:#FAFCFF}
 .tablo-kaydir{overflow-x:auto}
+.kaydir-ipucu{font-size:11px;color:var(--gray);margin-top:6px;display:none}
+@media(max-width:760px){.kaydir-ipucu{display:block}}
 
 .gorev-satir{display:flex;align-items:flex-start;gap:10px;padding:10px 6px;border-bottom:1px solid #EDF1F7}
 .gorev-satir input{width:18px;height:18px;margin-top:2px;flex-shrink:0}
@@ -94,7 +96,8 @@ border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:point
 .dan-satir.secili{border-color:var(--navy);background:var(--light)}
 .dan-satir .ad{font-weight:600;font-size:14px}
 .dan-satir .bilgi{font-size:12px;color:var(--gray)}
-.dan-satir .skor{font-size:18px;font-weight:700}
+.dan-satir .skor{font-size:16px;font-weight:800;padding:6px 12px;border-radius:20px;
+  background:var(--light);min-width:64px;text-align:center}
 
 .yorum-kutu{background:#FFFAEB;border-left:4px solid #BF8F00;padding:12px;border-radius:6px;
 font-size:13px;margin-top:12px}
@@ -209,8 +212,8 @@ font-size:13px;margin-top:12px}
 /* ==========================================================
    AYARLAR — Supabase bilgilerini buraya yapıştır
    ========================================================== */
-const SUPABASE_URL  = "https://nupspupnyohoickmgvhq.supabase.co";
-const SUPABASE_ANON = "sb_publishable_f_ufJO1NorKD8f49Dggdzw_t_mknCt0";
+const SUPABASE_URL  = "BURAYA_PROJECT_URL_YAPISTIR";
+const SUPABASE_ANON = "BURAYA_ANON_KEY_YAPISTIR";
 /* ========================================================== */
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
@@ -294,12 +297,22 @@ let SECILI_DAN = null;
 let GRUPLAR_LISTE = [];
 let SECILI_GRUP = "";     // "" = tümü
 let KIYAS_MOD = "kisi";   // "kisi" | "grup"
+let AKTIF_HAFTA = 1;      // programın kaçıncı haftası
 let BEKLEYEN_SORU = 0;   // yönetim: cevap bekleyen soru sayısı
 let YENI_CEVAP = 0;      // danışman: okunmamış cevap sayısı
 
 /* ---------------- yardımcı ---------------- */
 const $ = s => document.querySelector(s);
 const esc = t => String(t??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// Kaydet butonlarını işlem sırasında kilitler (çift tıklama kayıt bozar)
+async function butonlaIsle(btn, metin, islem){
+  if(!btn) return islem();
+  const eski = btn.textContent, eskiBg = btn.style.opacity;
+  btn.disabled = true; btn.style.opacity = ".65"; btn.textContent = metin;
+  try { return await islem(); }
+  finally { btn.disabled = false; btn.style.opacity = eskiBg; btn.textContent = eski; }
+}
+
 const skorRenk = p => p>=80 ? "var(--green)" : p>=50 ? "var(--orange)" : "var(--red)";
 
 function mesaj(metin, tur){
@@ -459,6 +472,9 @@ async function baslat(){
   const {data:grp} = await sb.from("grup").select("*").order("id");
   GRUPLAR_LISTE = grp || [];
 
+  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
+  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
+
   await sayaclariYenile();
 
   $("#kimlikRozet").textContent = profil.ad +
@@ -573,6 +589,7 @@ async function ekranGirisim(){
     return `Aylık hedef: ${aylik}`;
   };
   $("#icerik").innerHTML = `
+    <div id="haftaUyari"></div>
     <div class="kart">
       <h2>Haftalık Girişim</h2>
       <p class="alt">Her hafta sonu bu haftanın rakamlarını gir.
@@ -628,10 +645,11 @@ async function ekranGirisim(){
 
       <label style="margin-top:16px">Bu hafta hakkında notun</label>
       <textarea id="fNot" rows="3" placeholder="Neler iyi gitti, nerede zorlandın?"></textarea>
-      <button class="btn" onclick="haftaKaydet()">KAYDET</button>
+      <button class="btn" id="btnHafta" onclick="haftaKaydet(this)">KAYDET</button>
       <div id="girisimMesaj" class="uyari"></div>
       <div id="mentorYorumAlan"></div>
     </div>`;
+  $("#fHafta").value = String(AKTIF_HAFTA);
   $("#fHafta").onchange = haftaYukle;
   haftaYukle();
 }
@@ -648,20 +666,37 @@ async function haftaYukle(){
   if(data?.tarih) $("#fTarih").value = data.tarih;
   $("#mentorYorumAlan").innerHTML = data?.mentor_yorum
     ? `<div class="yorum-kutu"><b>MENTÖR YORUMU</b>${esc(data.mentor_yorum)}</div>` : "";
+
+  // Aktif haftanın verisi yoksa üstte sarı uyarı
+  const uy = $("#haftaUyari");
+  if(uy){
+    const aktifMi = hafta === AKTIF_HAFTA;
+    uy.innerHTML = (aktifMi && !data)
+      ? `<div style="background:#FFFAEB;border-left:4px solid #BF8F00;padding:12px 14px;
+           border-radius:6px;margin-bottom:14px;font-size:13.5px;color:#7A5B00">
+           <b>Bu haftanın rakamlarını henüz girmedin.</b><br>
+           Aşağıdaki alanları doldurup kaydet — birkaç dakika sürer.</div>`
+      : "";
+  }
 }
 
-async function haftaKaydet(){
-  const kayit = {user_id:BEN.id, hafta:+$("#fHafta").value, tarih:$("#fTarih").value,
-                 aciklama:$("#fNot").value.trim(), updated_at:new Date().toISOString()};
-  METRIKLER.forEach(([k])=> kayit[k] = +($("#f_"+k).value||0));
-  PAZARLAMA.forEach(([k])=> kayit[k] = $("#f_"+k).checked);
-  KATILIM.forEach(([k])=> kayit[k] = $("#f_"+k).checked);
-  kayit.kt_not = ($("#f_kt_not")?.value || "").trim();
-  const {error} = await sb.from("haftalik").upsert(kayit,{onConflict:"user_id,hafta"});
-  const m=$("#girisimMesaj");
-  if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
-  else { m.className="uyari ok"; m.textContent="Kaydedildi. Teşekkürler!";
-         setTimeout(()=>m.className="uyari",4000); }
+async function haftaKaydet(btn){
+  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    const kayit = {user_id:BEN.id, hafta:+$("#fHafta").value, tarih:$("#fTarih").value,
+                   aciklama:$("#fNot").value.trim(), updated_at:new Date().toISOString()};
+    METRIKLER.forEach(([k])=> kayit[k] = +($("#f_"+k).value||0));
+    PAZARLAMA.forEach(([k])=> kayit[k] = $("#f_"+k).checked);
+    KATILIM.forEach(([k])=> kayit[k] = $("#f_"+k).checked);
+    kayit.kt_not = ($("#f_kt_not")?.value || "").trim();
+    const {error} = await sb.from("haftalik").upsert(kayit,{onConflict:"user_id,hafta"});
+    const m=$("#girisimMesaj");
+    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
+    else {
+      m.className="uyari ok"; m.textContent="Kaydedildi. Teşekkürler!";
+      haftaYukle();
+      setTimeout(()=>m.className="uyari",5000);
+    }
+  });
 }
 
 async function ekranBenim(){
@@ -714,7 +749,9 @@ async function ekranBenim(){
     if(v[2]>=100) guclu.push(s); else if(v[2]>=60) orta.push(s); else zayif.push(s);
   });
   $("#analizMetin").innerHTML = a.hafta===0
-    ? `<div>Henüz veri girmedin. "Haftalık Girişim" sekmesinden başlayabilirsin.</div>`
+    ? `<div style="margin-bottom:12px">Henüz veri girmedin — grafikler ve analiz
+         ilk haftanı girdiğinde oluşacak.</div>
+       <button class="btn ince" onclick="sekmeAc('girisim')">İlk haftanı gir →</button>`
     : `<h4>GÜÇLÜ YÖNLER</h4>${guclu.length?guclu.map(s=>`<div class="iyi">✔ ${s}</div>`).join(""):"<div>—</div>"}
        <h4>GELİŞTİRİLEBİLİR</h4>${orta.length?orta.map(s=>`<div class="orta">● ${s}</div>`).join(""):"<div>—</div>"}
        <h4>ODAKLANMAN GEREKEN</h4>${zayif.length?zayif.map(s=>`<div class="kotu">✖ ${s}</div>`).join(""):"<div class='iyi'>Kritik eksik yok.</div>"}`;
@@ -737,7 +774,8 @@ async function ekranGorevlerim(){
           <div class="gorev-satir ${g.tamam?"bitti":""}" id="gs_${g.id}">
             <input type="checkbox" ${g.tamam?"checked":""} onchange="gorevDegistir(${g.id},this.checked)">
             <label><span class="hafta-etiket">H${g.hafta}</span>${esc(g.gorev)}</label>
-          </div>`).join("")}
+          </div>`).join("") || `<p class="alt">Görevlerin henüz atanmadı.
+            Yöneticine haber ver.</p>`}
       </div>
     </div>`;
 }
@@ -808,7 +846,7 @@ async function ekranSoru(){
       <label>Sorun</label>
       <textarea id="sMetin" rows="4"
         placeholder="Örn: Satıcı komisyonu %2'ye düşürmemi istiyor, nasıl cevap vermeliyim?"></textarea>
-      <button class="btn" onclick="soruGonder()">Gönder</button>
+      <button class="btn" onclick="soruGonder(this)">Gönder</button>
       <div id="soruMesaj" class="uyari"></div>
     </div>
 
@@ -832,7 +870,8 @@ async function ekranSoru(){
     </div>`;
 }
 
-async function soruGonder(){
+async function soruGonder(btn){
+  return butonlaIsle(btn, "Gönderiliyor…", async ()=>{
   const m = $("#soruMesaj");
   const metin = $("#sMetin").value.trim();
   if(metin.length < 5){ m.className="uyari hata"; m.textContent="Lütfen sorunu yaz."; return; }
@@ -843,6 +882,7 @@ async function soruGonder(){
   if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
   m.className="uyari ok"; m.textContent="Soru gönderildi. Mentörün cevaplayınca burada görünecek.";
   setTimeout(()=>ekranSoru(), 1000);
+  });
 }
 
 /* ---------- YÖNETİM: Sorular ---------- */
@@ -905,6 +945,9 @@ async function soruCevapla(id){
   if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
   const {data:grp} = await sb.from("grup").select("*").order("id");
   GRUPLAR_LISTE = grp || [];
+
+  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
+  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
 
   await sayaclariYenile();
   sekmeleriKur();
@@ -1092,10 +1135,13 @@ async function ekipVerisi(){
     const a=analizEt(k, d.hedef_bandi);
     const gp = g.length? g.filter(x=>x.tamam).length/g.length*100 : 0;
     const t=kol=>k.reduce((s,x)=>s+(x[kol]||0),0);
+    const sonHafta = k.length ? Math.max(...k.map(r=>r.hafta)) : 0;
+    const buHaftaGirdi = k.some(r=>r.hafta === AKTIF_HAFTA);
     const ktTop = k.length*KATILIM.length;
     const ktVar = k.reduce((s,x)=>s+KATILIM.filter(([kk])=>x[kk]).length,0);
     const katilim = ktTop ? ktVar/ktTop*100 : 0;
     return {profil:d, kayitlar:k, analiz:a, gorevYuzde:gp, katilim,
+            sonHafta, buHaftaGirdi,
             portfoy:t("portfoy_alim"), islem:t("islem"),
             arama:t("fsbo_arama")+t("sicak_arama"),
             sunum:t("portfoy_sunumu"),
@@ -1108,6 +1154,9 @@ async function ekranEkip(){
   const {data:grp} = await sb.from("grup").select("*").order("id");
   GRUPLAR_LISTE = grp || [];
 
+  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
+  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
+
   await sayaclariYenile();
   const ekip = await ekipVerisi();
   if(!ekip.length){
@@ -1115,8 +1164,27 @@ async function ekranEkip(){
       <p class="alt">Danışmanların siteye kayıt olduğunda burada görünecekler.
       Onlara site adresini ve ofis kodunu ver.</p></div>`; return;
   }
-  const veriGirmeyen = ekip.filter(e=>e.analiz.hafta===0);
-  $("#icerik").innerHTML = grupSecHtml() + `
+  const veriGirmeyen = ekip.filter(e=>!e.buHaftaGirdi);
+  const girmeyenler = ekip.filter(e=>!e.buHaftaGirdi);
+  const uyariHtml = girmeyenler.length ? `
+    <div class="kart" style="border-color:var(--orange);background:#FFF8F0">
+      <h2 style="color:var(--orange)">⚠ Hafta ${AKTIF_HAFTA} — ${girmeyenler.length} danışman veri girmedi</h2>
+      <p class="alt">İsimlere dokunarak detayına gidebilirsin.</p>
+      ${girmeyenler.map(e=>`
+        <div class="dan-satir" onclick="danAc('${e.profil.id}')" style="margin-bottom:6px">
+          <div>
+            <div class="ad">${esc(e.profil.ad)}</div>
+            <div class="bilgi">${e.sonHafta ? "Son giriş: Hafta "+e.sonHafta
+                                            : "Hiç veri girmemiş"}</div>
+          </div>
+          <div style="font-size:13px;color:var(--orange);font-weight:600">bekliyor →</div>
+        </div>`).join("")}
+    </div>` : `
+    <div class="kart" style="border-color:var(--green);background:#F3FAF4">
+      <h2 style="color:var(--green)">✓ Hafta ${AKTIF_HAFTA} — herkes verisini girdi</h2>
+    </div>`;
+
+  $("#icerik").innerHTML = grupSecHtml() + uyariHtml + `
     <div class="kutucuklar">
       <div class="kutu"><span>Danışman</span><b>${ekip.length}</b></div>
       <div class="kutu"><span>Toplam Portföy</span><b>${ekip.reduce((s,e)=>s+e.portfoy,0)}</b></div>
@@ -1137,8 +1205,10 @@ async function ekranEkip(){
           <div>
             <div class="ad">${esc(e.profil.ad)}</div>
             <div class="bilgi">${esc(grupAdi(e.profil.grup_id))} ·
-              ${e.analiz.hafta} hafta · görev %${e.gorevYuzde.toFixed(0)} ·
-              katılım %${e.katilim.toFixed(0)}</div>
+              görev %${e.gorevYuzde.toFixed(0)} · katılım %${e.katilim.toFixed(0)} ·
+              <span style="color:${e.buHaftaGirdi?"var(--green)":"var(--red)"};font-weight:600">
+                ${e.buHaftaGirdi ? "H"+AKTIF_HAFTA+" girildi"
+                  : (e.sonHafta ? "son: H"+e.sonHafta : "veri yok")}</span></div>
           </div>
           <div class="skor" style="color:${skorRenk(e.analiz.genel)}">${e.analiz.genel.toFixed(0)}%</div>
         </div>`).join("")}
@@ -1177,6 +1247,18 @@ async function ekranDetay(){
       <h2>Otomatik Değerlendirme</h2>
       <div id="analizMetin"></div>
     </div>
+
+    ${duzenlerMi()? `
+    <div class="kart" style="border-color:#BF8F00;background:#FFFDF6">
+      <h2 style="color:#8B6914">🔒 Mentör Özel Notu</h2>
+      <p class="alt">Sadece yönetim görür. Danışman bu notu göremez.</p>
+      <textarea id="mNot" rows="4"
+        placeholder="Örn: Fiyat itirazında zorlanıyor. Akşam aramaları daha iyi sonuç veriyor."
+        >${esc(e.profil.mentor_notu||"")}</textarea>
+      <button class="btn ince" style="margin-top:10px"
+        onclick="mentorNotKaydet(this)">Notu Kaydet</button>
+      <div id="mNotMesaj" class="uyari"></div>
+    </div>` : ""}
     ${!duzenlerMi()? `
     <div class="kart">
       <h2>Görev Durumu</h2>
@@ -1199,6 +1281,7 @@ async function ekranDetay(){
             || `<tr><td colspan="14" style="color:var(--gray)">Henüz veri girmemiş.</td></tr>`}
         </table>
       </div>
+      <div class="kaydir-ipucu">← Kaydırarak tüm sütunları görebilirsin</div>
     </div>
     ${duzenlerMi()? `
     <div class="kart">
@@ -1239,7 +1322,7 @@ async function ekranDetay(){
         <input type="text" id="d_kt_not">
         <div class="hedef-not">Danışmanın yazdığı metin gelir; gerekiyorsa düzeltebilirsin.</div>
       </div>
-      <button class="btn" onclick="danVeriKaydet()">Danışman Adına Kaydet</button>
+      <button class="btn" onclick="danVeriKaydet(this)">Danışman Adına Kaydet</button>
       <div id="danVeriMesaj" class="uyari"></div>
     </div>
 
@@ -1310,7 +1393,8 @@ async function danVeriYukle(){
   if(data?.tarih) $("#dTarih").value = data.tarih;
 }
 
-async function danVeriKaydet(){
+async function danVeriKaydet(btn){
+  return butonlaIsle(btn, "Kaydediliyor…", async ()=>{
   const kayit = {user_id:SECILI_DAN, hafta:+$("#dHafta").value, tarih:$("#dTarih").value,
                  updated_at:new Date().toISOString()};
   METRIKLER.forEach(([k])=> kayit[k] = +($("#d_"+k).value||0));
@@ -1322,6 +1406,7 @@ async function danVeriKaydet(){
   if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
   else { m.className="uyari ok"; m.textContent="Kaydedildi.";
          setTimeout(()=>{m.className="uyari"; ekranDetay();},1200); }
+  });
 }
 
 async function danGorevYukle(){
@@ -1339,6 +1424,17 @@ async function danGorevDegistir(id, durum){
   await sb.from("gorev").update({tamam:durum,
     tamam_tarih: durum? new Date().toISOString().slice(0,10) : null}).eq("id",id);
   $("#dg_"+id).classList.toggle("bitti",durum);
+}
+
+async function mentorNotKaydet(btn){
+  return butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    const {error} = await sb.from("profiles")
+      .update({mentor_notu: $("#mNot").value.trim()}).eq("id", SECILI_DAN);
+    const m = $("#mNotMesaj");
+    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
+    else { m.className="uyari ok"; m.textContent="Not kaydedildi.";
+           setTimeout(()=>m.className="uyari",5000); }
+  });
 }
 
 async function yorumYukle(){
@@ -1468,6 +1564,17 @@ async function ekranAyar(){
     </div>`:""}
 
     <div class="kart">
+      <h2>Program Haftası</h2>
+      <p class="alt">Şu an programın kaçıncı haftasındayız? "Bu hafta veri girmeyenler"
+      uyarısı bu değere göre hesaplanır. Her hafta başında güncelle.</p>
+      <select id="aktifHafta" style="max-width:180px" onchange="aktifHaftaKaydet(this.value)">
+        ${Array.from({length:10},(_,i)=>`<option value="${i+1}" ${
+          AKTIF_HAFTA===i+1?"selected":""}>Hafta ${i+1}</option>`).join("")}
+      </select>
+      <div id="haftaAyarMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
       <h2>Ekipler / Dönemler</h2>
       <p class="alt">Yeni ekip aldığında burada yeni bir dönem aç, kodunu onlara ver.</p>
       ${GRUPLAR_LISTE.map(g=>`
@@ -1593,6 +1700,16 @@ async function onayla(id, kabul){
   ekranAyar();
 }
 
+async function aktifHaftaKaydet(deger){
+  const {error} = await sb.from("ayar")
+    .upsert({anahtar:"aktif_hafta", deger:String(deger)},{onConflict:"anahtar"});
+  const m = $("#haftaAyarMesaj");
+  if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; }
+  else { AKTIF_HAFTA = +deger; m.className="uyari ok";
+         m.textContent="Program haftası: Hafta "+deger;
+         setTimeout(()=>m.className="uyari",5000); }
+}
+
 async function grupEkle(){
   const m=$("#grupMesaj");
   const ad=$("#gAd").value.trim(), kod=$("#gKod").value.trim().toUpperCase();
@@ -1601,6 +1718,9 @@ async function grupEkle(){
   if(error){ m.className="uyari hata"; m.textContent="Eklenemedi: "+error.message; return; }
   const {data:grp} = await sb.from("grup").select("*").order("id");
   GRUPLAR_LISTE = grp || [];
+
+  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
+  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
   ekranAyar();
 }
 
@@ -1608,6 +1728,9 @@ async function grupDurum(id, durum){
   await sb.from("grup").update({durum}).eq("id",id);
   const {data:grp} = await sb.from("grup").select("*").order("id");
   GRUPLAR_LISTE = grp || [];
+
+  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
+  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
 }
 
 async function rolDegistir(id, rol){
