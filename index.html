@@ -484,22 +484,22 @@ async function baslat(){
   sekmeleriKur();
 }
 
-function sekmeleriKur(){
+function sekmeleriKur(ac){
   let liste;
   if(yonetimMi()){
     liste = [["ekip","Ekip Özeti"],["detay","Danışman Detayı"],["kiyas","Karşılaştırma"],
-             ["sorular", "Sorular" + (BEKLEYEN_SORU? ` (${BEKLEYEN_SORU})` : "")],
+             ["mesajlar", "Mesajlar" + (BEKLEYEN_SORU? ` (${BEKLEYEN_SORU})` : "")],
              ["kaynaklar","Eğitim Merkezi"]];
     if(ustYonetimMi()) liste.push(["ayar","Yönetim"]);
   } else {
     liste = [["girisim","Haftalık Girişim"],["benim","Performansım"],
              ["gorevlerim","Görevlerim"],
-             ["soru","Mentöre Sor" + (YENI_CEVAP? ` (${YENI_CEVAP})` : "")],
+             ["mesaj","Mesajlar" + (YENI_CEVAP? ` (${YENI_CEVAP})` : "")],
              ["kaynaklar","Eğitim Merkezi"]];
   }
   $("#sekmeler").innerHTML = liste.map(([k,ad])=>
     `<button data-k="${k}" onclick="sekmeAc('${k}')">${ad}</button>`).join("");
-  sekmeAc(liste[0][0]);
+  if(ac !== false) sekmeAc(liste[0][0]);
 }
 
 // Logo tıklanınca panelin ilk sekmesine döner (çıkış yapmaz)
@@ -509,12 +509,19 @@ function anaSayfa(){
   window.scrollTo({top:0, behavior:"smooth"});
 }
 
+// Sadece sekme etiketlerini tazeler; aktif ekranı değiştirmez.
+function sekmeleriKurSessiz(){
+  sekmeleriKur(false);
+  document.querySelectorAll("#sekmeler button").forEach(b=>
+    b.classList.toggle("aktif", b.dataset.k===AKTIF_SEKME));
+}
+
 function sekmeAc(k){
   AKTIF_SEKME = k;
   document.querySelectorAll("#sekmeler button").forEach(b=>
     b.classList.toggle("aktif", b.dataset.k===k));
   ({girisim:ekranGirisim, benim:ekranBenim, gorevlerim:ekranGorevlerim,
-    soru:ekranSoru, sorular:ekranSorular, kaynaklar:ekranKaynaklar,
+    mesaj:ekranMesaj, mesajlar:ekranMesajlar, kaynaklar:ekranKaynaklar,
     ekip:ekranEkip, detay:ekranDetay, kiyas:ekranKiyas, ayar:ekranAyar})[k]();
 }
 
@@ -800,13 +807,15 @@ async function gorevDegistir(id, durum){
 async function sayaclariYenile(){
   try{
     if(yonetimMi()){
-      const {count} = await sb.from("soru")
-        .select("id",{count:"exact",head:true}).eq("durum","acik");
+      // danışmandan gelen okunmamış mesajlar
+      const {count} = await sb.from("mesaj")
+        .select("id",{count:"exact",head:true}).eq("yon","danisman").eq("okundu",false);
       BEKLEYEN_SORU = count || 0;
     } else {
-      const {count} = await sb.from("soru")
+      // yönetimden gelen okunmamış mesajlar
+      const {count} = await sb.from("mesaj")
         .select("id",{count:"exact",head:true})
-        .eq("user_id",BEN.id).eq("durum","cevaplandi").eq("okundu",false);
+        .eq("danisman_id",BEN.id).eq("yon","yonetim").eq("okundu",false);
       YENI_CEVAP = count || 0;
     }
   }catch(e){ /* sayaç kritik değil */ }
@@ -828,152 +837,204 @@ const grupSecHtml = () => GRUPLAR_LISTE.length ? `
 const tarihYaz = t => t ? new Date(t).toLocaleDateString("tr-TR",
   {day:"2-digit",month:"2-digit",year:"numeric"}) : "";
 
-/* ---------- DANIŞMAN: Mentöre Sor ---------- */
-async function ekranSoru(){
-  $("#icerik").innerHTML = `<div class="yukleniyor">Yükleniyor…</div>`;
-  const {data:sorular} = await sb.from("soru").select("*")
-    .eq("user_id",BEN.id).order("created_at",{ascending:false});
+/* ---------- ORTAK: mesaj balonu ---------- */
+function mesajBalonu(m, benimYonum){
+  const benim = m.yon === benimYonum;
+  return `<div style="display:flex;justify-content:${benim?"flex-end":"flex-start"};margin-bottom:10px">
+    <div style="max-width:78%;padding:10px 13px;border-radius:12px;font-size:13.5px;
+         line-height:1.5;white-space:pre-wrap;
+         background:${benim?"var(--navy)":"#F0F3F8"};color:${benim?"#fff":"var(--text)"};
+         ${benim?"border-bottom-right-radius:4px":"border-bottom-left-radius:4px"}">
+      ${esc(m.metin)}
+      <div style="font-size:10.5px;opacity:.7;margin-top:5px;text-align:right">
+        ${tarihYaz(m.created_at)}${(!benim && !m.okundu)? " · yeni" : ""}</div>
+    </div></div>`;
+}
 
-  // cevapları okundu işaretle
-  const okunmamis = (sorular||[]).filter(s=>s.durum==="cevaplandi" && !s.okundu);
+/* ---------- DANIŞMAN: Mesajlar ---------- */
+async function ekranMesaj(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Mesajlar yükleniyor…</div>`;
+  const {data:mesajlar, error} = await sb.from("mesaj").select("*")
+    .eq("danisman_id",BEN.id).order("created_at");
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)} — 4-MESAJLAR.sql çalıştırıldı mı?</p></div>`; return;
+  }
+
+  // Yönetimden gelenleri okundu işaretle
+  const okunmamis = (mesajlar||[]).filter(m=>m.yon==="yonetim" && !m.okundu);
   if(okunmamis.length){
-    try {
-      await sb.from("soru").update({okundu:true}).in("id", okunmamis.map(s=>s.id));
-    } catch(e){ /* okundu kolonu yoksa akış bozulmasın */ }
-    YENI_CEVAP = 0;
+    await sb.from("mesaj").update({okundu:true}).in("id", okunmamis.map(m=>m.id));
+    YENI_CEVAP = 0; sekmeleriKurSessiz();
   }
 
   $("#icerik").innerHTML = `
     <div class="kart">
-      <h2>Mentörüne Soru Sor</h2>
-      <p class="alt">Takıldığın bir konu, itiraz ya da portföy durumu — yaz, mentörünün önüne düşsün.</p>
-      <label>Hafta (isteğe bağlı)</label>
-      <select id="sHafta" style="max-width:180px">
-        <option value="">Genel</option>
-        ${Array.from({length:10},(_,i)=>`<option value="${i+1}">Hafta ${i+1}</option>`).join("")}
-      </select>
-      <label>Sorun</label>
-      <textarea id="sMetin" rows="4"
-        placeholder="Örn: Satıcı komisyonu %2'ye düşürmemi istiyor, nasıl cevap vermeliyim?"></textarea>
-      <button class="btn" onclick="soruGonder(this)">Gönder</button>
-      <div id="soruMesaj" class="uyari"></div>
-    </div>
-
-    <div class="kart">
-      <h2>Sorularım</h2>
-      ${(sorular||[]).length ? (sorular||[]).map(s=>`
-        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px">
-          <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
-            <span class="hafta-etiket">${s.hafta? "H"+s.hafta : "Genel"}</span>
-            <span style="font-size:11px;color:var(--gray)">${tarihYaz(s.created_at)}</span>
-          </div>
-          <div style="font-size:14px;white-space:pre-wrap">${esc(s.metin)}</div>
-          ${s.durum==="cevaplandi"
-            ? `<div class="yorum-kutu" style="margin-top:10px">
-                 <b>MENTÖR CEVABI · ${tarihYaz(s.cevap_tarih)}</b>
-                 <div style="white-space:pre-wrap">${esc(s.cevap)}</div></div>`
-            : `<div style="margin-top:10px;font-size:12.5px;color:var(--orange);font-weight:600">
-                 ⏳ Cevap bekleniyor</div>`}
-        </div>`).join("")
-        : "<p class='alt'>Henüz soru sormadın.</p>"}
-    </div>`;
-}
-
-async function soruGonder(btn){
-  return butonlaIsle(btn, "Gönderiliyor…", async ()=>{
-  const m = $("#soruMesaj");
-  const metin = $("#sMetin").value.trim();
-  if(metin.length < 5){ m.className="uyari hata"; m.textContent="Lütfen sorunu yaz."; return; }
-  let {error} = await sb.from("soru").insert({
-    user_id: BEN.id, metin,
-    hafta: $("#sHafta").value ? +$("#sHafta").value : null
-  });
-  // Bazı kurulumlarda tablo/kolon şema önbelleğinde eksik olabilir —
-  // en sade haliyle tekrar dene.
-  if(error && /schema cache|column|does not exist/i.test(error.message||"")){
-    const tekrar = await sb.from("soru").insert({user_id: BEN.id, metin});
-    error = tekrar.error;
-  }
-  if(error){ m.className="uyari hata";
-    m.textContent="Gönderilemedi: "+error.message+
-      "  (Veritabanı güncel mi kontrol et: 3-GUNCELLEME.sql)"; return; }
-  m.className="uyari ok"; m.textContent="Soru gönderildi. Mentörün cevaplayınca burada görünecek.";
-  setTimeout(()=>ekranSoru(), 1000);
-  });
-}
-
-/* ---------- YÖNETİM: Sorular ---------- */
-async function ekranSorular(){
-  $("#icerik").innerHTML = `<div class="yukleniyor">Sorular yükleniyor…</div>`;
-  const [{data:sorular}, {data:kisiler}] = await Promise.all([
-    sb.from("soru").select("*").order("durum").order("created_at",{ascending:false}),
-    sb.from("profiles").select("id,ad")
-  ]);
-  const adBul = id => (kisiler||[]).find(k=>k.id===id)?.ad || "—";
-  const acik = (sorular||[]).filter(s=>s.durum==="acik");
-  const kapali = (sorular||[]).filter(s=>s.durum!=="acik");
-
-  const kart = (s,cevaplanabilir) => `
-    <div style="border:1px solid ${s.durum==="acik"?"var(--orange)":"var(--border)"};
-         border-radius:10px;padding:14px;margin-bottom:10px;background:#fff">
-      <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
-        <b style="font-size:14px">${esc(adBul(s.user_id))}</b>
-        <span style="font-size:11px;color:var(--gray)">
-          ${s.hafta? "Hafta "+s.hafta+" · " : ""}${tarihYaz(s.created_at)}</span>
+      <h2>Mesajlar</h2>
+      <p class="alt">Mentörün ve ofis yönetiminle yazışman. Takıldığın konuyu sor,
+      cevap burada görünür.</p>
+      <div id="mesajAkis" style="max-height:52vh;overflow-y:auto;padding:12px 4px;
+           border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:12px 0">
+        ${(mesajlar||[]).length
+          ? (mesajlar||[]).map(m=>mesajBalonu(m,"danisman")).join("")
+          : `<p class="alt" style="text-align:center;padding:20px 0">
+               Henüz mesaj yok. Aşağıdan ilk mesajını yazabilirsin.</p>`}
       </div>
-      <div style="font-size:14px;white-space:pre-wrap;margin-bottom:10px">${esc(s.metin)}</div>
-      ${s.durum==="cevaplandi"
-        ? `<div class="yorum-kutu"><b>CEVAP · ${tarihYaz(s.cevap_tarih)}</b>
-             <div style="white-space:pre-wrap">${esc(s.cevap)}</div></div>`
-        : ""}
-      ${cevaplanabilir? `
-        <textarea id="c_${s.id}" rows="3"
-          placeholder="Cevabını yaz…">${s.durum==="cevaplandi"? esc(s.cevap):""}</textarea>
-        <button class="btn ince" style="margin-top:8px"
-          onclick="soruCevapla(${s.id})">${s.durum==="cevaplandi"?"Cevabı Güncelle":"Cevapla"}</button>`
-        : ""}
+      <textarea id="mMetin" rows="3"
+        placeholder="Örn: Satıcı komisyonu %2'ye düşürmemi istiyor, nasıl cevap vermeliyim?"></textarea>
+      <button class="btn" onclick="mesajGonder(this)">Gönder</button>
+      <div id="mesajMesaji" class="uyari"></div>
     </div>`;
-
-  $("#icerik").innerHTML = `
-    <div class="kutucuklar">
-      <div class="kutu"><span>Cevap Bekleyen</span>
-        <b style="color:${acik.length?"var(--orange)":"var(--green)"}">${acik.length}</b></div>
-      <div class="kutu"><span>Cevaplanan</span><b>${kapali.length}</b></div>
-    </div>
-    <div class="kart">
-      <h2>Cevap Bekleyenler</h2>
-      ${acik.length? acik.map(s=>kart(s,duzenlerMi())).join("")
-        : "<p class='alt'>Bekleyen soru yok.</p>"}
-      <div id="cevapMesaj" class="uyari"></div>
-    </div>
-    ${kapali.length? `<div class="kart"><h2>Cevaplananlar</h2>
-      ${kapali.map(s=>kart(s,duzenlerMi())).join("")}</div>`:""}`;
+  const ak = $("#mesajAkis"); if(ak) ak.scrollTop = ak.scrollHeight;
 }
 
-async function soruCevapla(id){
-  const el = $("#c_"+id); if(!el) return;
-  const cevap = el.value.trim();
-  const m = $("#cevapMesaj");
-  if(cevap.length < 2){ m.className="uyari hata"; m.textContent="Cevap boş olamaz."; return; }
-  let {error} = await sb.from("soru").update({
-    cevap, durum:"cevaplandi", cevaplayan:BEN.id,
-    cevap_tarih:new Date().toISOString(), okundu:false
-  }).eq("id",id);
-  if(error && /schema cache|column|does not exist/i.test(error.message||"")){
-    const tekrar = await sb.from("soru")
-      .update({cevap, durum:"cevaplandi"}).eq("id",id);
-    error = tekrar.error;
+async function mesajGonder(btn){
+  const m = $("#mesajMesaji");
+  const metin = $("#mMetin").value.trim();
+  if(metin.length < 2){ m.className="uyari hata"; m.textContent="Mesaj boş olamaz."; return; }
+  await butonlaIsle(btn, "Gönderiliyor…", async ()=>{
+    const {error} = await sb.from("mesaj").insert({
+      danisman_id: BEN.id, gonderen_id: BEN.id, yon:"danisman", metin, okundu:false});
+    if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
+    $("#mMetin").value = "";
+    m.className="uyari ok"; m.textContent="Mesajın iletildi.";
+    setTimeout(()=>m.className="uyari", 5000);
+    await ekranMesaj();
+  });
+}
+
+/* ---------- YÖNETİM: Mesajlar ---------- */
+let ACIK_SOHBET = null;
+
+async function ekranMesajlar(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Mesajlar yükleniyor…</div>`;
+  const [{data:mesajlar, error}, {data:kisiler}] = await Promise.all([
+    sb.from("mesaj").select("*").order("created_at"),
+    sb.from("profiles").select("id,ad,bolge,grup_id")
+  ]);
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)} — 4-MESAJLAR.sql çalıştırıldı mı?</p></div>`; return;
   }
-  if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
-  const {data:grp} = await sb.from("grup").select("*").order("id");
-  GRUPLAR_LISTE = grp || [];
+  const adBul = id => (kisiler||[]).find(k=>k.id===id)?.ad || "—";
 
-  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
-  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
+  // Danışman bazında akışlar
+  const akislar = {};
+  (mesajlar||[]).forEach(m=>{ (akislar[m.danisman_id] = akislar[m.danisman_id] || []).push(m); });
 
-  await sayaclariYenile();
-  sekmeleriKur();
-  sekmeAc("sorular");
+  const liste = Object.entries(akislar).map(([did, ms])=>({
+    did, ms,
+    son: ms[ms.length-1],
+    okunmamis: ms.filter(m=>m.yon==="danisman" && !m.okundu).length
+  })).sort((a,b)=> (b.okunmamis - a.okunmamis) ||
+        (new Date(b.son.created_at) - new Date(a.son.created_at)));
+
+  const toplamYeni = liste.reduce((s,l)=>s+l.okunmamis,0);
+
+  // Sohbet açık değilse liste göster
+  if(!ACIK_SOHBET){
+    $("#icerik").innerHTML = `
+      <div class="kutucuklar">
+        <div class="kutu"><span>Okunmamış Mesaj</span>
+          <b style="color:${toplamYeni?"var(--orange)":"var(--green)"}">${toplamYeni}</b></div>
+        <div class="kutu"><span>Konuşma</span><b>${liste.length}</b></div>
+      </div>
+      <div class="kart">
+        <h2>Konuşmalar</h2>
+        <p class="alt">Bir danışmana dokunarak yazışmayı aç. Yeni mesaj olanlar üstte.</p>
+        ${liste.length? liste.map(l=>`
+          <div class="dan-satir" onclick="sohbetAc('${l.did}')"
+               style="${l.okunmamis?"border-color:var(--orange);background:#FFF8F0":""}">
+            <div style="min-width:0">
+              <div class="ad">${esc(adBul(l.did))}
+                ${l.okunmamis? `<span style="background:var(--red);color:#fff;font-size:11px;
+                   padding:2px 8px;border-radius:20px;margin-left:6px">${l.okunmamis} yeni</span>`:""}</div>
+              <div class="bilgi" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                ${l.son.yon==="yonetim"? "Sen: " : ""}${esc(l.son.metin).slice(0,70)}</div>
+            </div>
+            <div style="font-size:11.5px;color:var(--gray);flex-shrink:0">
+              ${tarihYaz(l.son.created_at)}</div>
+          </div>`).join("")
+          : "<p class='alt'>Henüz mesaj yok.</p>"}
+      </div>
+      <div class="kart">
+        <h2>Yeni Mesaj Başlat</h2>
+        <p class="alt">Bir danışmana doğrudan mesaj gönder.</p>
+        <label>Danışman</label>
+        <select id="yeniAlici">
+          ${(kisiler||[]).filter(k=>k.id!==BEN.id).map(k=>
+            `<option value="${k.id}">${esc(k.ad)}</option>`).join("")}
+        </select>
+        <label>Mesaj</label>
+        <textarea id="yeniMetin" rows="3" placeholder="Mesajını yaz…"></textarea>
+        <button class="btn" onclick="yeniMesajGonder(this)">Gönder</button>
+        <div id="yeniMesajMesaji" class="uyari"></div>
+      </div>`;
+    return;
+  }
+
+  // Açık sohbet görünümü
+  const akis = akislar[ACIK_SOHBET] || [];
+  const okunmamis = akis.filter(m=>m.yon==="danisman" && !m.okundu);
+  if(okunmamis.length){
+    await sb.from("mesaj").update({okundu:true}).in("id", okunmamis.map(m=>m.id));
+    okunmamis.forEach(m=>m.okundu=true);
+    await sayaclariYenile(); sekmeleriKurSessiz();
+  }
+
+  $("#icerik").innerHTML = `
+    <div class="kart">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+        <h2 style="margin:0">${esc(adBul(ACIK_SOHBET))}</h2>
+        <button class="btn ince gri" onclick="sohbetKapat()">← Tüm konuşmalar</button>
+      </div>
+      <div id="mesajAkis" style="max-height:52vh;overflow-y:auto;padding:12px 4px;
+           border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:12px 0">
+        ${akis.length? akis.map(m=>mesajBalonu(m,"yonetim")).join("")
+                     : "<p class='alt'>Bu danışmanla henüz yazışma yok.</p>"}
+      </div>
+      ${duzenlerMi()? `
+        <textarea id="cMetin" rows="3" placeholder="Cevabını yaz…"></textarea>
+        <button class="btn" onclick="cevapGonder(this)">Gönder</button>
+        <div id="cevapMesaji" class="uyari"></div>`
+        : `<p class="alt">Görüntüleme yetkisi — cevap yazamazsın.</p>`}
+    </div>`;
+  const ak = $("#mesajAkis"); if(ak) ak.scrollTop = ak.scrollHeight;
+}
+
+function sohbetAc(did){ ACIK_SOHBET = did; ekranMesajlar(); }
+function sohbetKapat(){ ACIK_SOHBET = null; ekranMesajlar(); }
+
+async function cevapGonder(btn){
+  const m = $("#cevapMesaji");
+  const metin = $("#cMetin").value.trim();
+  if(metin.length < 2){ m.className="uyari hata"; m.textContent="Mesaj boş olamaz."; return; }
+  await butonlaIsle(btn, "Gönderiliyor…", async ()=>{
+    const {error} = await sb.from("mesaj").insert({
+      danisman_id: ACIK_SOHBET, gonderen_id: BEN.id, yon:"yonetim", metin, okundu:false});
+    if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
+    $("#cMetin").value = "";
+    m.className="uyari ok"; m.textContent="Mesaj gönderildi.";
+    setTimeout(()=>m.className="uyari", 5000);
+    await ekranMesajlar();   // aynı ekranda kal, ana sayfaya atma
+  });
+}
+
+async function yeniMesajGonder(btn){
+  const m = $("#yeniMesajMesaji");
+  const alici = $("#yeniAlici").value;
+  const metin = $("#yeniMetin").value.trim();
+  if(!alici){ m.className="uyari hata"; m.textContent="Danışman seç."; return; }
+  if(metin.length < 2){ m.className="uyari hata"; m.textContent="Mesaj boş olamaz."; return; }
+  await butonlaIsle(btn, "Gönderiliyor…", async ()=>{
+    const {error} = await sb.from("mesaj").insert({
+      danisman_id: alici, gonderen_id: BEN.id, yon:"yonetim", metin, okundu:false});
+    if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
+    $("#yeniMetin").value = "";
+    m.className="uyari ok"; m.textContent="Mesaj gönderildi.";
+    ACIK_SOHBET = alici;
+    setTimeout(()=>ekranMesajlar(), 700);
+  });
 }
 
 /* ==========================================================
