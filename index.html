@@ -196,7 +196,8 @@ font-size:13px;margin-top:12px}
 <!-- ============ UYGULAMA ============ -->
 <div id="uygulama" class="hide">
   <header>
-    <div class="marka"><b>RE/MAX EKSEN</b><span>Fast Camp</span></div>
+    <div class="marka" onclick="anaSayfa()" style="cursor:pointer" title="Ana sayfa">
+      <b>RE/MAX EKSEN</b><span>Fast Camp</span></div>
     <div class="sag">
       <span class="rozet" id="kimlikRozet">—</span>
       <button class="cikis" onclick="cikisYap()">Çıkış</button>
@@ -499,6 +500,13 @@ function sekmeleriKur(){
   $("#sekmeler").innerHTML = liste.map(([k,ad])=>
     `<button data-k="${k}" onclick="sekmeAc('${k}')">${ad}</button>`).join("");
   sekmeAc(liste[0][0]);
+}
+
+// Logo tıklanınca panelin ilk sekmesine döner (çıkış yapmaz)
+function anaSayfa(){
+  if(!BEN) return;
+  sekmeAc(yonetimMi() ? "ekip" : "girisim");
+  window.scrollTo({top:0, behavior:"smooth"});
 }
 
 function sekmeAc(k){
@@ -829,8 +837,9 @@ async function ekranSoru(){
   // cevapları okundu işaretle
   const okunmamis = (sorular||[]).filter(s=>s.durum==="cevaplandi" && !s.okundu);
   if(okunmamis.length){
-    await sb.from("soru").update({okundu:true})
-      .in("id", okunmamis.map(s=>s.id));
+    try {
+      await sb.from("soru").update({okundu:true}).in("id", okunmamis.map(s=>s.id));
+    } catch(e){ /* okundu kolonu yoksa akış bozulmasın */ }
     YENI_CEVAP = 0;
   }
 
@@ -875,11 +884,19 @@ async function soruGonder(btn){
   const m = $("#soruMesaj");
   const metin = $("#sMetin").value.trim();
   if(metin.length < 5){ m.className="uyari hata"; m.textContent="Lütfen sorunu yaz."; return; }
-  const {error} = await sb.from("soru").insert({
+  let {error} = await sb.from("soru").insert({
     user_id: BEN.id, metin,
     hafta: $("#sHafta").value ? +$("#sHafta").value : null
   });
-  if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
+  // Bazı kurulumlarda tablo/kolon şema önbelleğinde eksik olabilir —
+  // en sade haliyle tekrar dene.
+  if(error && /schema cache|column|does not exist/i.test(error.message||"")){
+    const tekrar = await sb.from("soru").insert({user_id: BEN.id, metin});
+    error = tekrar.error;
+  }
+  if(error){ m.className="uyari hata";
+    m.textContent="Gönderilemedi: "+error.message+
+      "  (Veritabanı güncel mi kontrol et: 3-GUNCELLEME.sql)"; return; }
   m.className="uyari ok"; m.textContent="Soru gönderildi. Mentörün cevaplayınca burada görünecek.";
   setTimeout(()=>ekranSoru(), 1000);
   });
@@ -938,10 +955,15 @@ async function soruCevapla(id){
   const cevap = el.value.trim();
   const m = $("#cevapMesaj");
   if(cevap.length < 2){ m.className="uyari hata"; m.textContent="Cevap boş olamaz."; return; }
-  const {error} = await sb.from("soru").update({
+  let {error} = await sb.from("soru").update({
     cevap, durum:"cevaplandi", cevaplayan:BEN.id,
     cevap_tarih:new Date().toISOString(), okundu:false
   }).eq("id",id);
+  if(error && /schema cache|column|does not exist/i.test(error.message||"")){
+    const tekrar = await sb.from("soru")
+      .update({cevap, durum:"cevaplandi"}).eq("id",id);
+    error = tekrar.error;
+  }
   if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
   const {data:grp} = await sb.from("grup").select("*").order("id");
   GRUPLAR_LISTE = grp || [];
@@ -962,6 +984,15 @@ function ytKimlik(url){
   return m ? m[1] : null;
 }
 
+// Kaynak kategorileri
+const KAYNAK_TUR = [
+  ["sozlesme", "Sözleşmeler ve Resmi Formlar", "📋"],
+  ["rehber",   "Rehberler ve Checklist'ler",   "📄"],
+  ["video",    "Eğitim Videoları",              "🎬"],
+];
+// Eski kayıtlar 'dosya' türündeydi — rehber sayılır
+const turNormalize = t => (t === "video" ? "video" : t === "sozlesme" ? "sozlesme" : "rehber");
+
 async function ekranKaynaklar(){
   $("#icerik").innerHTML = `<div class="yukleniyor">Kaynaklar yükleniyor…</div>`;
   const {data:kaynaklar, error} = await sb.from("kaynak").select("*")
@@ -971,14 +1002,8 @@ async function ekranKaynaklar(){
       <p class="alt">${esc(error.message)}</p></div>`; return;
   }
 
-  const gruplar = {};
-  (kaynaklar||[]).forEach(k=>{
-    const g = k.hafta ? `Hafta ${k.hafta}` : "Genel Kaynaklar";
-    (gruplar[g] = gruplar[g] || []).push(k);
-  });
-
   const kartHtml = k => {
-    if(k.tur === "video"){
+    if(turNormalize(k.tur) === "video"){
       const id = ytKimlik(k.url);
       return `<div style="border:1px solid var(--border);border-radius:10px;
                 overflow:hidden;margin-bottom:12px;background:#fff">
@@ -989,7 +1014,8 @@ async function ekranKaynaklar(){
           : `<div style="padding:14px"><a href="${esc(k.url)}" target="_blank"
                rel="noopener" style="color:var(--navy);font-weight:600">Videoyu aç →</a></div>`}
         <div style="padding:12px 14px">
-          <div style="font-weight:600;font-size:14px">${esc(k.baslik)}</div>
+          <div style="font-weight:600;font-size:14px">
+            ${k.hafta? `<span class="hafta-etiket">H${k.hafta}</span>`:""}${esc(k.baslik)}</div>
           ${k.aciklama? `<div style="font-size:12.5px;color:var(--gray);margin-top:4px">
             ${esc(k.aciklama)}</div>`:""}
         </div></div>`;
@@ -998,7 +1024,8 @@ async function ekranKaynaklar(){
               border:1px solid var(--border);border-radius:10px;padding:12px 14px;
               margin-bottom:8px;background:#fff">
         <div style="min-width:0">
-          <div style="font-weight:600;font-size:14px">${esc(k.baslik)}</div>
+          <div style="font-weight:600;font-size:14px">
+            ${k.hafta? `<span class="hafta-etiket">H${k.hafta}</span>`:""}${esc(k.baslik)}</div>
           ${k.aciklama? `<div style="font-size:12.5px;color:var(--gray);margin-top:3px">
             ${esc(k.aciklama)}</div>`:""}
         </div>
@@ -1008,16 +1035,27 @@ async function ekranKaynaklar(){
       </div>`;
   };
 
-  const govde = Object.keys(gruplar).length
-    ? Object.entries(gruplar).map(([baslik,liste])=>`
-        <div class="kart">
-          <h2>${esc(baslik)}</h2>
-          <div style="margin-top:12px">${liste.map(kartHtml).join("")}</div>
-        </div>`).join("")
-    : `<div class="kart"><h2>Henüz kaynak eklenmemiş</h2>
-       <p class="alt">${duzenlerMi()
-         ? "Aşağıdaki bölümden form ve video ekleyebilirsin."
-         : "Yöneticin kaynak ekledikçe burada görünecek."}</p></div>`;
+  // Her kategori kendi kartında; içinde hafta bazlı alt başlıklar
+  const govde = KAYNAK_TUR.map(([tur, baslik, ikon])=>{
+    const liste = (kaynaklar||[]).filter(k=>turNormalize(k.tur)===tur);
+    if(!liste.length){
+      return `<div class="kart">
+        <h2>${ikon} ${baslik}</h2>
+        <p class="alt">Bu kategoride henüz kaynak yok.</p></div>`;
+    }
+    const genel  = liste.filter(k=>!k.hafta);
+    const haftali = liste.filter(k=>k.hafta).sort((a,b)=>a.hafta-b.hafta);
+    return `<div class="kart">
+      <h2>${ikon} ${baslik}</h2>
+      <p class="alt">${liste.length} kaynak</p>
+      <div style="margin-top:12px">
+        ${genel.map(kartHtml).join("")}
+        ${haftali.length? `<div style="font-size:12px;font-weight:600;color:var(--gray);
+          text-transform:uppercase;letter-spacing:.3px;margin:14px 0 8px">
+          Haftaya bağlı kaynaklar</div>${haftali.map(kartHtml).join("")}`:""}
+      </div>
+    </div>`;
+  }).join("");
 
   $("#icerik").innerHTML = govde + (duzenlerMi()? kaynakYonetimHtml() : "");
   if(duzenlerMi()) kaynakListeYukle();
@@ -1031,7 +1069,8 @@ function kaynakYonetimHtml(){
       <div class="metrik-grid">
         <div class="alan"><label>Tür</label>
           <select id="kTur" onchange="kaynakTurDegisti()">
-            <option value="dosya">Dosya / Form</option>
+            <option value="rehber">Rehber / Checklist</option>
+            <option value="sozlesme">Sözleşme / Resmi Form</option>
             <option value="video">Video (YouTube)</option>
           </select></div>
         <div class="alan"><label>Hafta (boş = genel)</label>
@@ -1077,7 +1116,7 @@ async function kaynakEkle(){
   let url = $("#kUrl").value.trim();
   const dosya = $("#kDosya")?.files?.[0];
 
-  if(tur === "dosya" && dosya){
+  if(tur !== "video" && dosya){
     m.className="uyari"; m.textContent="";
     const temiz = dosya.name.replace(/[^A-Za-z0-9._-]/g,"_");
     const yol = `${Date.now()}_${temiz}`;
@@ -1106,9 +1145,9 @@ async function kaynakListeYukle(){
   el.innerHTML = (data||[]).map(k=>`
     <div class="dan-satir" style="cursor:default">
       <div style="min-width:0">
-        <div class="ad">${k.tur==="video"?"🎬":"📄"} ${esc(k.baslik)}</div>
-        <div class="bilgi">${k.hafta? "Hafta "+k.hafta : "Genel"}${
-          k.aktif? "" : " · pasif"}</div>
+        <div class="ad">${(KAYNAK_TUR.find(t=>t[0]===turNormalize(k.tur))||["","","📄"])[2]} ${esc(k.baslik)}</div>
+        <div class="bilgi">${(KAYNAK_TUR.find(t=>t[0]===turNormalize(k.tur))||["","—"])[1]} ·
+          ${k.hafta? "Hafta "+k.hafta : "Genel"}${k.aktif? "" : " · pasif"}</div>
       </div>
       <button class="btn ince gri" onclick="kaynakSil(${k.id})">Sil</button>
     </div>`).join("") || "<p class='alt'>Kaynak yok.</p>";
@@ -1141,7 +1180,7 @@ async function ekipVerisi(){
     const ktVar = k.reduce((s,x)=>s+KATILIM.filter(([kk])=>x[kk]).length,0);
     const katilim = ktTop ? ktVar/ktTop*100 : 0;
     return {profil:d, kayitlar:k, analiz:a, gorevYuzde:gp, katilim,
-            sonHafta, buHaftaGirdi,
+            sonHafta, buHaftaGirdi, pasif: (d.durum || "Aktif") !== "Aktif",
             portfoy:t("portfoy_alim"), islem:t("islem"),
             arama:t("fsbo_arama")+t("sicak_arama"),
             sunum:t("portfoy_sunumu"),
@@ -1164,8 +1203,10 @@ async function ekranEkip(){
       <p class="alt">Danışmanların siteye kayıt olduğunda burada görünecekler.
       Onlara site adresini ve ofis kodunu ver.</p></div>`; return;
   }
-  const veriGirmeyen = ekip.filter(e=>!e.buHaftaGirdi);
-  const girmeyenler = ekip.filter(e=>!e.buHaftaGirdi);
+  const aktifler = ekip.filter(e=>!e.pasif);
+  const pasifler = ekip.filter(e=>e.pasif);
+  const girmeyenler = aktifler.filter(e=>!e.buHaftaGirdi);
+  const veriGirmeyen = girmeyenler;
   const uyariHtml = girmeyenler.length ? `
     <div class="kart" style="border-color:var(--orange);background:#FFF8F0">
       <h2 style="color:var(--orange)">⚠ Hafta ${AKTIF_HAFTA} — ${girmeyenler.length} danışman veri girmedi</h2>
@@ -1186,7 +1227,7 @@ async function ekranEkip(){
 
   $("#icerik").innerHTML = grupSecHtml() + uyariHtml + `
     <div class="kutucuklar">
-      <div class="kutu"><span>Danışman</span><b>${ekip.length}</b></div>
+      <div class="kutu"><span>Aktif Danışman</span><b>${aktifler.length}</b></div>
       <div class="kutu"><span>Toplam Portföy</span><b>${ekip.reduce((s,e)=>s+e.portfoy,0)}</b></div>
       <div class="kutu"><span>Toplam İşlem</span><b>${ekip.reduce((s,e)=>s+e.islem,0)}</b></div>
       <div class="kutu"><span>Veri Girmeyen</span>
@@ -1200,7 +1241,7 @@ async function ekranEkip(){
     <div class="kart">
       <h2>Ekip Listesi</h2>
       <p class="alt">Detay için bir danışmana dokun.</p>
-      ${ekip.sort((a,b)=>b.analiz.genel-a.analiz.genel).map(e=>`
+      ${aktifler.sort((a,b)=>b.analiz.genel-a.analiz.genel).map(e=>`
         <div class="dan-satir" onclick="danAc('${e.profil.id}')">
           <div>
             <div class="ad">${esc(e.profil.ad)}</div>
@@ -1212,7 +1253,21 @@ async function ekranEkip(){
           </div>
           <div class="skor" style="color:${skorRenk(e.analiz.genel)}">${e.analiz.genel.toFixed(0)}%</div>
         </div>`).join("")}
-    </div>`;
+    </div>
+    ${pasifler.length? `
+    <div class="kart" style="background:#FAFAFA">
+      <h2 style="color:var(--gray)">Pasif / Ayrılanlar (${pasifler.length})</h2>
+      <p class="alt">Takipten çıkarıldı; verileri dönem karşılaştırmasında korunuyor.</p>
+      ${pasifler.map(e=>`
+        <div class="dan-satir" onclick="danAc('${e.profil.id}')" style="opacity:.7">
+          <div>
+            <div class="ad">${esc(e.profil.ad)}</div>
+            <div class="bilgi">${esc(grupAdi(e.profil.grup_id))} ·
+              ${e.sonHafta? "son: H"+e.sonHafta : "veri yok"} · ${esc(e.profil.durum||"Pasif")}</div>
+          </div>
+          <div class="skor" style="color:var(--gray)">${e.analiz.genel.toFixed(0)}%</div>
+        </div>`).join("")}
+    </div>`:""}`;
 }
 
 function danAc(id){ SECILI_DAN = id; sekmeAc("detay"); }
@@ -1239,6 +1294,9 @@ async function ekranDetay(){
       <div class="kutu"><span>Sunum→Yetki</span><b style="color:${skorRenk(e.donusum)}">${e.donusum.toFixed(0)}%</b></div>
       <div class="kutu"><span>Katılım</span><b style="color:${skorRenk(e.katilim)}">${e.katilim.toFixed(0)}%</b></div>
     </div>
+    ${e.pasif? `<div class="kart" style="background:#FAFAFA;border-color:var(--gray)">
+      <b style="color:var(--gray)">Bu danışman ${esc(e.profil.durum||"Pasif")} durumda —
+      aktif takipten çıkarıldı. Geçmiş verileri görüntüleniyor.</b></div>`:""}
     <div class="kart">
       <h2>Hedefe Ulaşma</h2>
       <canvas id="cBar"></canvas>
@@ -1604,9 +1662,24 @@ async function ekranAyar(){
       <p class="alt">Siteye kayıt olan herkes önce "Danışman" gelir.
       Ofis yöneticisi veya mentör olacak kişiyi buradan yükselt.</p>
       ${(hepsi||[]).map(d=>`
-        <div class="dan-satir" style="cursor:default">
-          <div><div class="ad">${esc(d.ad)}${d.onay?"":" ⏳"}</div>
-            <div class="bilgi">${esc(grupAdi(d.grup_id))} · ${esc(d.bolge||"—")}</div></div>
+        <div class="dan-satir" style="cursor:default;align-items:flex-start;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
+              <input type="text" id="ad_${d.id}" value="${esc(d.ad)}"
+                     style="max-width:200px;padding:7px 9px;font-size:13.5px">
+              <button class="btn ince gri" onclick="adGuncelle('${d.id}',this)">Adı Güncelle</button>
+              ${d.id===BEN.id? "" : `
+                <select style="max-width:150px;padding:7px" onchange="durumDegistir('${d.id}',this.value)">
+                  ${["Aktif","Pasif","Ayrıldı"].map(s=>
+                    `<option value="${s}" ${(d.durum||"Aktif")===s?"selected":""}>${s}</option>`).join("")}
+                </select>
+                <button class="btn ince" style="background:var(--red)"
+                   onclick="uyeSil('${d.id}','${esc(d.ad).replace(/'/g,"")}',this)">Üyeyi Sil</button>`}
+            </div>
+            <div class="bilgi">${d.onay?"":"⏳ onay bekliyor · "}${esc(grupAdi(d.grup_id))} ·
+              ${esc(d.bolge||"—")}${(d.durum&&d.durum!=="Aktif")?
+                ` · <b style="color:var(--gray)">${esc(d.durum)}</b>`:""}</div>
+          </div>
           <select style="max-width:160px" ${d.id===BEN.id?"disabled":""}
                   onchange="rolDegistir('${d.id}',this.value)">
             ${Object.keys(ROLLER).map(r=>
@@ -1620,6 +1693,13 @@ async function ekranAyar(){
         <b>Gelişim Koçu</b> — görür + veri/görev düzenler, yorum yazar<br>
         <b>Ofis Müdürü</b> — hepsi + hedef bantları ve roller<br>
         <b>Broker</b> — tam yetki
+      </div>
+      <div style="margin-top:10px;background:#FFFAEB;border-left:4px solid #BF8F00;
+           padding:10px 12px;border-radius:6px;font-size:12.5px;color:#7A5B00">
+        <b>Pasif / Ayrıldı:</b> Kişi aktif listeden ve "veri girmeyenler" uyarısından çıkar,
+        ama tüm geçmiş verisi durur ve dönem karşılaştırmasında görünür.
+        Ofisten ayrılan danışman için bunu kullan.<br>
+        <b>Üyeyi Sil:</b> Her şeyi kalıcı siler. Sadece deneme kayıtları için kullan.
       </div>
     </div>
 
@@ -1731,6 +1811,46 @@ async function grupDurum(id, durum){
 
   const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
   AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
+}
+
+async function adGuncelle(id, btn){
+  const yeniAd = ($("#ad_"+id)?.value || "").trim();
+  const m = $("#rolMesaj");
+  if(yeniAd.length < 2){ m.className="uyari hata"; m.textContent="Ad en az 2 karakter olmalı."; return; }
+  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    const {error} = await sb.from("profiles").update({ad:yeniAd}).eq("id",id);
+    if(error){ m.className="uyari hata"; m.textContent="Güncellenemedi: "+error.message; }
+    else { m.className="uyari ok"; m.textContent="Ad güncellendi: "+yeniAd;
+           setTimeout(()=>{m.className="uyari"; ekranAyar();},1000); }
+  });
+}
+
+async function durumDegistir(id, durum){
+  const {error} = await sb.from("profiles").update({durum}).eq("id",id);
+  const m = $("#rolMesaj");
+  if(error){ m.className="uyari hata"; m.textContent="Değiştirilemedi: "+error.message; }
+  else { m.className="uyari ok";
+         m.textContent = durum==="Aktif"
+           ? "Takibe geri alındı."
+           : "Durum: "+durum+" — aktif listeden çıkarıldı, verileri korunuyor.";
+         setTimeout(()=>{m.className="uyari"; ekranAyar();},1400); }
+}
+
+async function uyeSil(id, ad, btn){
+  const m = $("#rolMesaj");
+  if(!confirm(ad + " sistemden KALICI olarak silinecek.\n\n" +
+      "Tüm haftalık verileri, görevleri ve soruları da silinir. Bu işlem geri alınamaz.\n\n" +
+      "Devam edilsin mi?")) return;
+  await butonlaIsle(btn, "Siliniyor…", async ()=>{
+    const {error} = await sb.rpc("kullanici_sil_admin", {p_user_id: id});
+    if(error){ m.className="uyari hata";
+      m.textContent="Silinemedi: "+error.message+
+        "  (Veritabanı fonksiyonu kurulu mu kontrol et.)"; return; }
+    m.className="uyari ok"; m.textContent=ad+" sistemden silindi.";
+    const {data:grp} = await sb.from("grup").select("*").order("id");
+    GRUPLAR_LISTE = grp || [];
+    setTimeout(()=>{m.className="uyari"; ekranAyar();}, 1200);
+  });
 }
 
 async function rolDegistir(id, rol){
