@@ -1052,6 +1052,10 @@ const KAYNAK_TUR = [
   ["video",    "Eğitim Videoları",              "🎬"],
 ];
 // Eski kayıtlar 'dosya' türündeydi — rehber sayılır
+// Türkçe alfabetik sıralama (ç, ğ, ı, İ, ö, ş, ü doğru sıralanır)
+const trSirala = (a,b) => String(a||"").localeCompare(String(b||""), "tr",
+  {sensitivity:"base", numeric:true});
+
 const turNormalize = t => (t === "video" ? "video" : t === "sozlesme" ? "sozlesme" : "rehber");
 
 async function ekranKaynaklar(){
@@ -1104,8 +1108,10 @@ async function ekranKaynaklar(){
         <h2>${ikon} ${baslik}</h2>
         <p class="alt">Bu kategoride henüz kaynak yok.</p></div>`;
     }
-    const genel  = liste.filter(k=>!k.hafta);
-    const haftali = liste.filter(k=>k.hafta).sort((a,b)=>a.hafta-b.hafta);
+    const genel  = liste.filter(k=>!k.hafta)
+                        .sort((a,b)=>trSirala(a.baslik,b.baslik));
+    const haftali = liste.filter(k=>k.hafta)
+                        .sort((a,b)=> (a.hafta-b.hafta) || trSirala(a.baslik,b.baslik));
     return `<div class="kart">
       <h2>${ikon} ${baslik}</h2>
       <p class="alt">${liste.length} kaynak</p>
@@ -1201,9 +1207,13 @@ async function kaynakEkle(){
 }
 
 async function kaynakListeYukle(){
-  const {data} = await sb.from("kaynak").select("*").order("id",{ascending:false});
+  const {data} = await sb.from("kaynak").select("*");
   const el = $("#kaynakListe"); if(!el) return;
-  el.innerHTML = (data||[]).map(k=>`
+  const sirali = (data||[]).slice().sort((a,b)=>
+    trSirala(turNormalize(a.tur), turNormalize(b.tur)) ||
+    ((a.hafta||0) - (b.hafta||0)) ||
+    trSirala(a.baslik, b.baslik));
+  el.innerHTML = sirali.map(k=>`
     <div class="dan-satir" style="cursor:default">
       <div style="min-width:0">
         <div class="ad">${(KAYNAK_TUR.find(t=>t[0]===turNormalize(k.tur))||["","","📄"])[2]} ${esc(k.baslik)}</div>
