@@ -845,6 +845,8 @@ function mesajBalonu(m, benimYonum){
          line-height:1.5;white-space:pre-wrap;
          background:${benim?"var(--navy)":"#F0F3F8"};color:${benim?"#fff":"var(--text)"};
          ${benim?"border-bottom-right-radius:4px":"border-bottom-left-radius:4px"}">
+      ${m.toplu? `<div style="font-size:10.5px;opacity:.8;margin-bottom:5px;
+        font-weight:700;letter-spacing:.3px">📢 DUYURU</div>`:""}
       ${esc(m.metin)}
       <div style="font-size:10.5px;opacity:.7;margin-top:5px;text-align:right">
         ${tarihYaz(m.created_at)}${(!benim && !m.okundu)? " · yeni" : ""}</div>
@@ -957,6 +959,22 @@ async function ekranMesajlar(){
           </div>`).join("")
           : "<p class='alt'>Henüz mesaj yok.</p>"}
       </div>
+      <div class="kart" style="border-color:var(--navy)">
+        <h2>📢 Toplu Mesaj (Duyuru)</h2>
+        <p class="alt">Tek mesaj yaz, herkesin kendi özel akışına ayrı ayrı düşsün.
+        Danışmanlar birbirinin mesajını görmez; cevap veren doğrudan sana yazar.</p>
+        <label>Kime</label>
+        <select id="topluHedef">
+          <option value="">Tüm aktif danışmanlar</option>
+          ${GRUPLAR_LISTE.map(g=>`<option value="${g.id}">${esc(g.ad)} ekibi</option>`).join("")}
+        </select>
+        <label>Mesaj</label>
+        <textarea id="topluMetin" rows="3"
+          placeholder="Örn: Pazar akşamı bu haftanın rakamlarını girmeyi unutmayın."></textarea>
+        <button class="btn" onclick="topluMesajGonder(this)">Herkese Gönder</button>
+        <div id="topluMesajMesaji" class="uyari"></div>
+      </div>
+
       <div class="kart">
         <h2>Yeni Mesaj Başlat</h2>
         <p class="alt">Bir danışmana doğrudan mesaj gönder.</p>
@@ -1017,6 +1035,45 @@ async function cevapGonder(btn){
     m.className="uyari ok"; m.textContent="Mesaj gönderildi.";
     setTimeout(()=>m.className="uyari", 5000);
     await ekranMesajlar();   // aynı ekranda kal, ana sayfaya atma
+  });
+}
+
+async function topluMesajGonder(btn){
+  const m = $("#topluMesajMesaji");
+  const metin = $("#topluMetin").value.trim();
+  const grup  = $("#topluHedef").value;
+  if(metin.length < 2){ m.className="uyari hata"; m.textContent="Mesaj boş olamaz."; return; }
+
+  await butonlaIsle(btn, "Gönderiliyor…", async ()=>{
+    let sorgu = sb.from("profiles").select("id,ad")
+      .eq("rol","danisman").eq("onay",true);
+    if(grup) sorgu = sorgu.eq("grup_id", grup);
+    const {data:kisiler, error:kErr} = await sorgu;
+    if(kErr){ m.className="uyari hata"; m.textContent="Liste alınamadı: "+kErr.message; return; }
+
+    const alicilar = (kisiler||[]).filter(k=>k.id !== BEN.id);
+    if(!alicilar.length){ m.className="uyari hata";
+      m.textContent="Gönderilecek aktif danışman bulunamadı."; return; }
+
+    if(!confirm(alicilar.length + " danışmana mesaj gönderilecek.\n\nDevam edilsin mi?")) return;
+
+    const satirlar = alicilar.map(k=>({
+      danisman_id: k.id, gonderen_id: BEN.id, yon:"yonetim",
+      metin, okundu:false, toplu:true }));
+
+    let {error} = await sb.from("mesaj").insert(satirlar);
+    // 'toplu' kolonu yoksa onsuz gönder
+    if(error && /toplu|schema cache|column/i.test(error.message||"")){
+      const tekrar = await sb.from("mesaj")
+        .insert(satirlar.map(({toplu, ...r})=>r));
+      error = tekrar.error;
+    }
+    if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
+
+    $("#topluMetin").value = "";
+    m.className="uyari ok";
+    m.textContent = alicilar.length + " danışmana gönderildi.";
+    setTimeout(()=>ekranMesajlar(), 1400);
   });
 }
 
