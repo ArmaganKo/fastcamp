@@ -840,7 +840,13 @@ const tarihYaz = t => t ? new Date(t).toLocaleDateString("tr-TR",
 /* ---------- ORTAK: mesaj balonu ---------- */
 function mesajBalonu(m, benimYonum){
   const benim = m.yon === benimYonum;
-  return `<div style="display:flex;justify-content:${benim?"flex-end":"flex-start"};margin-bottom:10px">
+  // Silme yetkisi yalnızca üst yönetimde (Mentör / Ofis Müdürü / Broker)
+  const silinebilir = ustYonetimMi();
+  return `<div style="display:flex;align-items:center;gap:6px;
+       justify-content:${benim?"flex-end":"flex-start"};margin-bottom:10px">
+    ${(silinebilir && benim)? `<button onclick="mesajSil(${m.id})" title="Mesajı sil"
+        style="background:none;border:none;color:var(--gray);font-size:17px;
+        cursor:pointer;padding:2px 5px;line-height:1">×</button>`:""}
     <div style="max-width:78%;padding:10px 13px;border-radius:12px;font-size:13.5px;
          line-height:1.5;white-space:pre-wrap;
          background:${benim?"var(--navy)":"#F0F3F8"};color:${benim?"#fff":"var(--text)"};
@@ -850,7 +856,38 @@ function mesajBalonu(m, benimYonum){
       ${esc(m.metin)}
       <div style="font-size:10.5px;opacity:.7;margin-top:5px;text-align:right">
         ${tarihYaz(m.created_at)}${(!benim && !m.okundu)? " · yeni" : ""}</div>
-    </div></div>`;
+    </div>
+    ${(silinebilir && !benim)? `<button onclick="mesajSil(${m.id})" title="Mesajı sil"
+        style="background:none;border:none;color:var(--gray);font-size:17px;
+        cursor:pointer;padding:2px 5px;line-height:1">×</button>`:""}
+  </div>`;
+}
+
+// Sohbetin tamamını silme — yalnızca üst yönetim
+async function sohbetSil(danismanId, ad, adet, btn){
+  if(!ustYonetimMi()) return;
+  if(!confirm(ad + " ile olan sohbetin TAMAMI silinecek.\n\n" +
+      adet + " mesaj kalıcı olarak kaybolacak. Bu işlem geri alınamaz.\n\n" +
+      "Devam edilsin mi?")) return;
+  await butonlaIsle(btn, "Siliniyor…", async ()=>{
+    const {error} = await sb.from("mesaj").delete().eq("danisman_id", danismanId);
+    if(error){ alert("Silinemedi: " + error.message); return; }
+    ACIK_SOHBET = null;
+    await sayaclariYenile();
+    sekmeleriKurSessiz();
+    ekranMesajlar();
+  });
+}
+
+// Tek mesaj silme — yalnızca üst yönetim
+async function mesajSil(id){
+  if(!ustYonetimMi()) return;
+  if(!confirm("Bu mesaj kalıcı olarak silinecek.\n\nDevam edilsin mi?")) return;
+  const {error} = await sb.from("mesaj").delete().eq("id", id);
+  if(error){ alert("Silinemedi: " + error.message); return; }
+  await sayaclariYenile();
+  sekmeleriKurSessiz();
+  ekranMesajlar();
 }
 
 /* ---------- DANIŞMAN: Mesajlar ---------- */
@@ -954,8 +991,13 @@ async function ekranMesajlar(){
               <div class="bilgi" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                 ${l.son.yon==="yonetim"? "Sen: " : ""}${esc(l.son.metin).slice(0,70)}</div>
             </div>
-            <div style="font-size:11.5px;color:var(--gray);flex-shrink:0">
-              ${tarihYaz(l.son.created_at)}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              <span style="font-size:11.5px;color:var(--gray)">${tarihYaz(l.son.created_at)}</span>
+              ${ustYonetimMi()? `<button title="Sohbeti sil"
+                onclick="event.stopPropagation();sohbetSil('${l.did}','${esc(adBul(l.did)).replace(/'/g,"")}',${l.ms.length},this)"
+                style="background:none;border:none;color:var(--gray);font-size:17px;
+                cursor:pointer;padding:2px 5px;line-height:1">🗑</button>`:""}
+            </div>
           </div>`).join("")
           : "<p class='alt'>Henüz mesaj yok.</p>"}
       </div>
@@ -1002,9 +1044,14 @@ async function ekranMesajlar(){
 
   $("#icerik").innerHTML = `
     <div class="kart">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <h2 style="margin:0">${esc(adBul(ACIK_SOHBET))}</h2>
-        <button class="btn ince gri" onclick="sohbetKapat()">← Tüm konuşmalar</button>
+        <div style="display:flex;gap:6px">
+          ${ustYonetimMi()? `<button class="btn ince" style="background:var(--red)"
+            onclick="sohbetSil('${ACIK_SOHBET}','${esc(adBul(ACIK_SOHBET)).replace(/'/g,"")}',${akis.length},this)">
+            Sohbeti Sil</button>`:""}
+          <button class="btn ince gri" onclick="sohbetKapat()">← Tüm konuşmalar</button>
+        </div>
       </div>
       <div id="mesajAkis" style="max-height:52vh;overflow-y:auto;padding:12px 4px;
            border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:12px 0">
