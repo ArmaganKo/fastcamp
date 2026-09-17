@@ -1148,10 +1148,14 @@ async function yeniMesajGonder(btn){
    YOKLAMA
    ========================================================== */
 const YOKLAMA_DURUM = [
-  ["katildi",   "Katıldı",   "var(--green)"],
-  ["gelmedi",   "Gelmedi",   "var(--red)"],
-  ["mazeretli", "Mazeretli", "var(--orange)"],
+  ["katildi",      "Katıldı",       "var(--green)"],
+  ["gelmedi",      "Gelmedi",       "var(--red)"],
+  ["mazeretli",    "Mazeretli",     "var(--orange)"],
+  ["kayitli_degil","Dahil Değildi", "var(--gray)"],
 ];
+// İstatistiğe katılmayan durumlar
+const SAYILMAZ = ["kayitli_degil"];
+const sayilan = liste => liste.filter(r=>!SAYILMAZ.includes(r.durum));
 let ACIK_OTURUM = null;
 
 /* ---------- YÖNETİM: Yoklama ---------- */
@@ -1198,7 +1202,7 @@ async function ekranYoklama(){
     <div class="kart">
       <h2>Geçmiş Oturumlar</h2>
       ${(oturumlar||[]).length? (oturumlar||[]).map(o=>{
-        const k = sayi(o.id);
+        const k = sayilan(sayi(o.id));
         const geldi = k.filter(r=>r.durum==="katildi").length;
         const oran = k.length? geldi/k.length*100 : 0;
         return `<div class="dan-satir" onclick="oturumAc(${o.id})">
@@ -1234,26 +1238,30 @@ async function karneYukle(oturumlar, kayitlar){
   const el = $("#karneAlan"); if(!el) return;
 
   const satir = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif").map(d=>{
-    const k = kayitlar.filter(r=>r.user_id===d.id);
+    const hepsi = kayitlar.filter(r=>r.user_id===d.id);
+    const k = sayilan(hepsi);
     const geldi = k.filter(r=>r.durum==="katildi").length;
     const mazeret = k.filter(r=>r.durum==="mazeretli").length;
     const gelmedi = k.filter(r=>r.durum==="gelmedi").length;
+    const disi = hepsi.length - k.length;
     const oran = k.length? geldi/k.length*100 : 0;
-    return {ad:d.ad, toplam:k.length, geldi, mazeret, gelmedi, oran};
+    return {ad:d.ad, toplam:k.length, geldi, mazeret, gelmedi, disi, oran};
   }).sort((a,b)=>b.oran-a.oran);
 
   el.innerHTML = satir.length? `
     <div class="tablo-kaydir">
       <table>
-        <tr><th>Danışman</th><th>Oturum</th><th>Katıldı</th><th>Mazeretli</th>
-            <th>Gelmedi</th><th>Oran</th></tr>
+        <tr><th>Danışman</th><th>Sayılan</th><th>Katıldı</th><th>Mazeretli</th>
+            <th>Gelmedi</th><th>Dahil Değil</th><th>Oran</th></tr>
         ${satir.map(s=>`<tr>
           <td><b>${esc(s.ad)}</b></td>
           <td>${s.toplam}</td>
           <td style="color:var(--green)">${s.geldi}</td>
           <td style="color:var(--orange)">${s.mazeret}</td>
           <td style="color:var(--red)">${s.gelmedi}</td>
-          <td style="color:${skorRenk(s.oran)}"><b>${s.oran.toFixed(0)}%</b></td>
+          <td style="color:var(--gray)">${s.disi||0}</td>
+          <td style="color:${s.toplam? skorRenk(s.oran):"var(--gray)"}">
+            <b>${s.toplam? s.oran.toFixed(0)+"%" : "—"}</b></td>
         </tr>`).join("")}
       </table>
     </div>
@@ -1292,12 +1300,19 @@ async function oturumYoklamaEkrani(oid, oturumlar, kayitlar){
   const o = (oturumlar||[]).find(x=>x.id===oid);
   if(!o){ ACIK_OTURUM = null; return ekranYoklama(); }
 
-  let sorgu = sb.from("profiles").select("id,ad,bolge,grup_id,durum")
+  let sorgu = sb.from("profiles").select("id,ad,bolge,grup_id,durum,created_at,baslangic")
     .eq("rol","danisman").eq("onay",true);
   if(o.grup_id) sorgu = sorgu.eq("grup_id", o.grup_id);
   const {data:danlar} = await sorgu.order("ad");
   const aktif = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif");
   const mevcut = id => (kayitlar||[]).find(k=>k.oturum_id===oid && k.user_id===id);
+
+  // Danışman oturum tarihinden SONRA sisteme girdiyse varsayılan "Dahil Değildi"
+  const sonradanMi = d => {
+    const giris = d.baslangic || d.created_at;
+    if(!giris) return false;
+    return new Date(giris) > new Date(o.tarih + "T23:59:59");
+  };
 
   $("#icerik").innerHTML = `
     <div class="kart">
@@ -1310,21 +1325,26 @@ async function oturumYoklamaEkrani(oid, oturumlar, kayitlar){
         <button class="btn ince gri" onclick="oturumKapat()">← Oturum listesi</button>
       </div>
 
-      <div style="margin:14px 0;display:flex;gap:8px;flex-wrap:wrap">
+      <div style="margin:14px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn ince" onclick="hepsiIsaretle('katildi')">Hepsi Katıldı</button>
         <button class="btn ince gri" onclick="hepsiIsaretle('gelmedi')">Hepsi Gelmedi</button>
+      </div>
+      <div style="font-size:12px;color:var(--gray);margin-bottom:10px">
+        <b>Dahil Değildi:</b> O tarihte henüz sisteme girmemiş danışman için.
+        Katılım oranına ve istatistiklere katılmaz. Sonradan katılanlar otomatik işaretlenir.
       </div>
 
       <div id="yoklamaListe">
         ${aktif.map(d=>{
           const k = mevcut(d.id);
-          const secili = k? k.durum : "";
+          const secili = k ? k.durum : (sonradanMi(d) ? "kayitli_degil" : "");
           return `<div class="gorev-satir" style="justify-content:space-between;align-items:center">
             <div style="min-width:0">
               <div style="font-weight:600;font-size:14px">${esc(d.ad)}</div>
               <div class="bilgi">${esc(d.bolge||"—")}</div>
             </div>
-            <div style="display:flex;gap:4px;flex-shrink:0" data-uid="${d.id}">
+            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end"
+                 data-uid="${d.id}">
               ${YOKLAMA_DURUM.map(([kod,ad,renk])=>`
                 <button onclick="durumSec('${d.id}','${kod}')"
                   data-durum="${kod}"
@@ -1345,7 +1365,11 @@ async function oturumYoklamaEkrani(oid, oturumlar, kayitlar){
 
   // seçimleri bellekte tut
   window.__yoklama = {};
-  aktif.forEach(d=>{ const k = mevcut(d.id); if(k) window.__yoklama[d.id] = k.durum; });
+  aktif.forEach(d=>{
+    const k = mevcut(d.id);
+    if(k) window.__yoklama[d.id] = k.durum;
+    else if(sonradanMi(d)) window.__yoklama[d.id] = "kayitli_degil";
+  });
 }
 
 function durumSec(uid, kod){
@@ -1403,15 +1427,16 @@ async function ekranYoklamam(){
     .filter(k=>k.oturum)
     .sort((a,b)=> new Date(b.oturum.tarih) - new Date(a.oturum.tarih));
 
-  const geldi = liste.filter(k=>k.durum==="katildi").length;
-  const oran = liste.length? geldi/liste.length*100 : 0;
+  const sayilanlar = sayilan(liste);
+  const geldi = sayilanlar.filter(k=>k.durum==="katildi").length;
+  const oran = sayilanlar.length? geldi/sayilanlar.length*100 : 0;
 
   $("#icerik").innerHTML = `
     <div class="kutucuklar">
       <div class="kutu"><span>Katılım Oranın</span>
         <b style="color:${skorRenk(oran)}">${oran.toFixed(0)}%</b></div>
       <div class="kutu"><span>Katıldığın</span><b>${geldi}</b></div>
-      <div class="kutu"><span>Toplam Oturum</span><b>${liste.length}</b></div>
+      <div class="kutu"><span>Sayılan Oturum</span><b>${sayilanlar.length}</b></div>
     </div>
     <div class="kart">
       <h2>Yoklama Geçmişin</h2>
