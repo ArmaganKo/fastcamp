@@ -333,33 +333,10 @@ function ekranDegis(hangi){
 
 /* ---------------- oturum ---------------- */
 async function girisYap(){
-  const email = $("#gEposta").value.trim();
-  const password = $("#gSifre").value;
-
-  if(!email || !password) {
-    return mesaj("E-posta ve şifre alanlarını doldurunuz.","hata");
-  }
-
-  const { error } = await sb.auth.signInWithPassword({ email, password });
-
-  if(error) {
-    const hata = (error.message || "").toLowerCase();
-
-    if(hata.includes("invalid login credentials")) {
-      return mesaj("E-posta veya şifre hatalı. Lütfen bilgilerinizi kontrol edip tekrar deneyin.","hata");
-    }
-
-    if(hata.includes("email not confirmed")) {
-      return mesaj("E-posta adresiniz henüz doğrulanmamış. Lütfen e-posta kutunuzu kontrol edin.","hata");
-    }
-
-    if(hata.includes("too many") || hata.includes("rate limit")) {
-      return mesaj("Çok fazla başarısız giriş denemesi yaptınız. Lütfen birkaç dakika bekleyip tekrar deneyin.","hata");
-    }
-
-    return mesaj("Giriş sırasında bir sorun oluştu. Lütfen tekrar deneyin.","hata");
-  }
-
+  const email=$("#gEposta").value.trim(), password=$("#gSifre").value;
+  if(!email||!password) return mesaj("E-posta ve şifre gerekli.","hata");
+  const {error} = await sb.auth.signInWithPassword({email,password});
+  if(error) return mesaj("Giriş başarısız: "+error.message,"hata");
   baslat();
 }
 
@@ -510,14 +487,16 @@ async function baslat(){
 function sekmeleriKur(ac){
   let liste;
   if(yonetimMi()){
-    liste = [["ekip","Ekip Özeti"],["yoklama","Yoklama"],["detay","Danışman Detayı"],["kiyas","Karşılaştırma"],
+    liste = [["ekip","Ekip Özeti"],["detay","Danışman Detayı"],["kiyas","Karşılaştırma"],
              ["mesajlar", "Mesajlar" + (BEKLEYEN_SORU? ` (${BEKLEYEN_SORU})` : "")],
+             ["yoklama","Yoklama"],
              ["kaynaklar","Eğitim Merkezi"]];
     if(ustYonetimMi()) liste.push(["ayar","Yönetim"]);
   } else {
     liste = [["girisim","Haftalık Girişim"],["benim","Performansım"],
              ["gorevlerim","Görevlerim"],
              ["mesaj","Mesajlar" + (YENI_CEVAP? ` (${YENI_CEVAP})` : "")],
+             ["yoklamam","Yoklamam"],
              ["kaynaklar","Eğitim Merkezi"]];
   }
   $("#sekmeler").innerHTML = liste.map(([k,ad])=>
@@ -545,7 +524,8 @@ function sekmeAc(k){
     b.classList.toggle("aktif", b.dataset.k===k));
   ({girisim:ekranGirisim, benim:ekranBenim, gorevlerim:ekranGorevlerim,
     mesaj:ekranMesaj, mesajlar:ekranMesajlar, kaynaklar:ekranKaynaklar,
-    ekip:ekranEkip, yoklama:ekranYoklama, detay:ekranDetay, kiyas:ekranKiyas, ayar:ekranAyar})[k]();
+    yoklama:ekranYoklama, yoklamam:ekranYoklamam,
+    ekip:ekranEkip, detay:ekranDetay, kiyas:ekranKiyas, ayar:ekranAyar})[k]();
 }
 
 /* ---------------- hesaplama ---------------- */
@@ -863,15 +843,54 @@ const tarihYaz = t => t ? new Date(t).toLocaleDateString("tr-TR",
 /* ---------- ORTAK: mesaj balonu ---------- */
 function mesajBalonu(m, benimYonum){
   const benim = m.yon === benimYonum;
-  return `<div style="display:flex;justify-content:${benim?"flex-end":"flex-start"};margin-bottom:10px">
+  // Silme yetkisi yalnızca üst yönetimde (Mentör / Ofis Müdürü / Broker)
+  const silinebilir = ustYonetimMi();
+  return `<div style="display:flex;align-items:center;gap:6px;
+       justify-content:${benim?"flex-end":"flex-start"};margin-bottom:10px">
+    ${(silinebilir && benim)? `<button onclick="mesajSil(${m.id})" title="Mesajı sil"
+        style="background:none;border:none;color:var(--gray);font-size:17px;
+        cursor:pointer;padding:2px 5px;line-height:1">×</button>`:""}
     <div style="max-width:78%;padding:10px 13px;border-radius:12px;font-size:13.5px;
          line-height:1.5;white-space:pre-wrap;
          background:${benim?"var(--navy)":"#F0F3F8"};color:${benim?"#fff":"var(--text)"};
          ${benim?"border-bottom-right-radius:4px":"border-bottom-left-radius:4px"}">
+      ${m.toplu? `<div style="font-size:10.5px;opacity:.8;margin-bottom:5px;
+        font-weight:700;letter-spacing:.3px">📢 DUYURU</div>`:""}
       ${esc(m.metin)}
       <div style="font-size:10.5px;opacity:.7;margin-top:5px;text-align:right">
         ${tarihYaz(m.created_at)}${(!benim && !m.okundu)? " · yeni" : ""}</div>
-    </div></div>`;
+    </div>
+    ${(silinebilir && !benim)? `<button onclick="mesajSil(${m.id})" title="Mesajı sil"
+        style="background:none;border:none;color:var(--gray);font-size:17px;
+        cursor:pointer;padding:2px 5px;line-height:1">×</button>`:""}
+  </div>`;
+}
+
+// Sohbetin tamamını silme — yalnızca üst yönetim
+async function sohbetSil(danismanId, ad, adet, btn){
+  if(!ustYonetimMi()) return;
+  if(!confirm(ad + " ile olan sohbetin TAMAMI silinecek.\n\n" +
+      adet + " mesaj kalıcı olarak kaybolacak. Bu işlem geri alınamaz.\n\n" +
+      "Devam edilsin mi?")) return;
+  await butonlaIsle(btn, "Siliniyor…", async ()=>{
+    const {error} = await sb.from("mesaj").delete().eq("danisman_id", danismanId);
+    if(error){ alert("Silinemedi: " + error.message); return; }
+    ACIK_SOHBET = null;
+    await sayaclariYenile();
+    sekmeleriKurSessiz();
+    ekranMesajlar();
+  });
+}
+
+// Tek mesaj silme — yalnızca üst yönetim
+async function mesajSil(id){
+  if(!ustYonetimMi()) return;
+  if(!confirm("Bu mesaj kalıcı olarak silinecek.\n\nDevam edilsin mi?")) return;
+  const {error} = await sb.from("mesaj").delete().eq("id", id);
+  if(error){ alert("Silinemedi: " + error.message); return; }
+  await sayaclariYenile();
+  sekmeleriKurSessiz();
+  ekranMesajlar();
 }
 
 /* ---------- DANIŞMAN: Mesajlar ---------- */
@@ -975,11 +994,32 @@ async function ekranMesajlar(){
               <div class="bilgi" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                 ${l.son.yon==="yonetim"? "Sen: " : ""}${esc(l.son.metin).slice(0,70)}</div>
             </div>
-            <div style="font-size:11.5px;color:var(--gray);flex-shrink:0">
-              ${tarihYaz(l.son.created_at)}</div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+              <span style="font-size:11.5px;color:var(--gray)">${tarihYaz(l.son.created_at)}</span>
+              ${ustYonetimMi()? `<button title="Sohbeti sil"
+                onclick="event.stopPropagation();sohbetSil('${l.did}','${esc(adBul(l.did)).replace(/'/g,"")}',${l.ms.length},this)"
+                style="background:none;border:none;color:var(--gray);font-size:17px;
+                cursor:pointer;padding:2px 5px;line-height:1">🗑</button>`:""}
+            </div>
           </div>`).join("")
           : "<p class='alt'>Henüz mesaj yok.</p>"}
       </div>
+      <div class="kart" style="border-color:var(--navy)">
+        <h2>📢 Toplu Mesaj (Duyuru)</h2>
+        <p class="alt">Tek mesaj yaz, herkesin kendi özel akışına ayrı ayrı düşsün.
+        Danışmanlar birbirinin mesajını görmez; cevap veren doğrudan sana yazar.</p>
+        <label>Kime</label>
+        <select id="topluHedef">
+          <option value="">Tüm aktif danışmanlar</option>
+          ${GRUPLAR_LISTE.map(g=>`<option value="${g.id}">${esc(g.ad)} ekibi</option>`).join("")}
+        </select>
+        <label>Mesaj</label>
+        <textarea id="topluMetin" rows="3"
+          placeholder="Örn: Pazar akşamı bu haftanın rakamlarını girmeyi unutmayın."></textarea>
+        <button class="btn" onclick="topluMesajGonder(this)">Herkese Gönder</button>
+        <div id="topluMesajMesaji" class="uyari"></div>
+      </div>
+
       <div class="kart">
         <h2>Yeni Mesaj Başlat</h2>
         <p class="alt">Bir danışmana doğrudan mesaj gönder.</p>
@@ -1007,9 +1047,14 @@ async function ekranMesajlar(){
 
   $("#icerik").innerHTML = `
     <div class="kart">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <h2 style="margin:0">${esc(adBul(ACIK_SOHBET))}</h2>
-        <button class="btn ince gri" onclick="sohbetKapat()">← Tüm konuşmalar</button>
+        <div style="display:flex;gap:6px">
+          ${ustYonetimMi()? `<button class="btn ince" style="background:var(--red)"
+            onclick="sohbetSil('${ACIK_SOHBET}','${esc(adBul(ACIK_SOHBET)).replace(/'/g,"")}',${akis.length},this)">
+            Sohbeti Sil</button>`:""}
+          <button class="btn ince gri" onclick="sohbetKapat()">← Tüm konuşmalar</button>
+        </div>
       </div>
       <div id="mesajAkis" style="max-height:52vh;overflow-y:auto;padding:12px 4px;
            border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:12px 0">
@@ -1043,6 +1088,45 @@ async function cevapGonder(btn){
   });
 }
 
+async function topluMesajGonder(btn){
+  const m = $("#topluMesajMesaji");
+  const metin = $("#topluMetin").value.trim();
+  const grup  = $("#topluHedef").value;
+  if(metin.length < 2){ m.className="uyari hata"; m.textContent="Mesaj boş olamaz."; return; }
+
+  await butonlaIsle(btn, "Gönderiliyor…", async ()=>{
+    let sorgu = sb.from("profiles").select("id,ad")
+      .eq("rol","danisman").eq("onay",true);
+    if(grup) sorgu = sorgu.eq("grup_id", grup);
+    const {data:kisiler, error:kErr} = await sorgu;
+    if(kErr){ m.className="uyari hata"; m.textContent="Liste alınamadı: "+kErr.message; return; }
+
+    const alicilar = (kisiler||[]).filter(k=>k.id !== BEN.id);
+    if(!alicilar.length){ m.className="uyari hata";
+      m.textContent="Gönderilecek aktif danışman bulunamadı."; return; }
+
+    if(!confirm(alicilar.length + " danışmana mesaj gönderilecek.\n\nDevam edilsin mi?")) return;
+
+    const satirlar = alicilar.map(k=>({
+      danisman_id: k.id, gonderen_id: BEN.id, yon:"yonetim",
+      metin, okundu:false, toplu:true }));
+
+    let {error} = await sb.from("mesaj").insert(satirlar);
+    // 'toplu' kolonu yoksa onsuz gönder
+    if(error && /toplu|schema cache|column/i.test(error.message||"")){
+      const tekrar = await sb.from("mesaj")
+        .insert(satirlar.map(({toplu, ...r})=>r));
+      error = tekrar.error;
+    }
+    if(error){ m.className="uyari hata"; m.textContent="Gönderilemedi: "+error.message; return; }
+
+    $("#topluMetin").value = "";
+    m.className="uyari ok";
+    m.textContent = alicilar.length + " danışmana gönderildi.";
+    setTimeout(()=>ekranMesajlar(), 1400);
+  });
+}
+
 async function yeniMesajGonder(btn){
   const m = $("#yeniMesajMesaji");
   const alici = $("#yeniAlici").value;
@@ -1058,6 +1142,292 @@ async function yeniMesajGonder(btn){
     ACIK_SOHBET = alici;
     setTimeout(()=>ekranMesajlar(), 700);
   });
+}
+
+/* ==========================================================
+   YOKLAMA
+   ========================================================== */
+const YOKLAMA_DURUM = [
+  ["katildi",   "Katıldı",   "var(--green)"],
+  ["gelmedi",   "Gelmedi",   "var(--red)"],
+  ["mazeretli", "Mazeretli", "var(--orange)"],
+];
+let ACIK_OTURUM = null;
+
+/* ---------- YÖNETİM: Yoklama ---------- */
+async function ekranYoklama(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Yoklama yükleniyor…</div>`;
+  const [{data:oturumlar, error}, {data:kayitlar}] = await Promise.all([
+    sb.from("oturum").select("*").order("tarih",{ascending:false}),
+    sb.from("yoklama").select("*")
+  ]);
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)} — YOKLAMA-EKLE.sql çalıştırıldı mı?</p></div>`; return;
+  }
+
+  // Açık oturum varsa yoklama alma ekranı
+  if(ACIK_OTURUM){ return oturumYoklamaEkrani(ACIK_OTURUM, oturumlar, kayitlar); }
+
+  const sayi = oid => (kayitlar||[]).filter(k=>k.oturum_id===oid);
+
+  $("#icerik").innerHTML = grupSecHtml() + `
+    <div class="kart" style="border-color:var(--navy)">
+      <h2>Yeni Oturum Aç</h2>
+      <p class="alt">Eğitim / Fast Camp oturumu oluştur, sonra yoklama al.</p>
+      <div class="metrik-grid">
+        <div class="alan"><label>Oturum adı</label>
+          <input type="text" id="oBaslik" placeholder="Hafta 3 — İtiraz Yönetimi"></div>
+        <div class="alan"><label>Tarih</label>
+          <input type="date" id="oTarih" value="${new Date().toISOString().slice(0,10)}"></div>
+        <div class="alan"><label>Program haftası</label>
+          <select id="oHafta"><option value="">Belirtme</option>
+            ${Array.from({length:10},(_,i)=>`<option value="${i+1}" ${
+              AKTIF_HAFTA===i+1?"selected":""}>Hafta ${i+1}</option>`).join("")}
+          </select></div>
+        <div class="alan"><label>Ekip</label>
+          <select id="oGrup"><option value="">Tüm ekipler</option>
+            ${GRUPLAR_LISTE.map(g=>`<option value="${g.id}" ${
+              String(SECILI_GRUP)===String(g.id)?"selected":""}>${esc(g.ad)}</option>`).join("")}
+          </select></div>
+      </div>
+      <button class="btn" onclick="oturumEkle(this)">Oturumu Oluştur ve Yoklamaya Geç</button>
+      <div id="oturumMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
+      <h2>Geçmiş Oturumlar</h2>
+      ${(oturumlar||[]).length? (oturumlar||[]).map(o=>{
+        const k = sayi(o.id);
+        const geldi = k.filter(r=>r.durum==="katildi").length;
+        const oran = k.length? geldi/k.length*100 : 0;
+        return `<div class="dan-satir" onclick="oturumAc(${o.id})">
+          <div style="min-width:0">
+            <div class="ad">${esc(o.baslik)}</div>
+            <div class="bilgi">${tarihYaz(o.tarih)}${o.hafta? " · Hafta "+o.hafta:""} ·
+              ${k.length? `${geldi}/${k.length} katılım` : "yoklama alınmadı"}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${k.length? `<div class="skor" style="color:${skorRenk(oran)}">${oran.toFixed(0)}%</div>`:""}
+            ${ustYonetimMi()? `<button title="Oturumu sil"
+              onclick="event.stopPropagation();oturumSil(${o.id},'${esc(o.baslik).replace(/'/g,"")}')"
+              style="background:none;border:none;color:var(--gray);font-size:16px;
+              cursor:pointer;padding:2px 5px">🗑</button>`:""}
+          </div>
+        </div>`;
+      }).join("") : "<p class='alt'>Henüz oturum oluşturulmadı.</p>"}
+    </div>
+
+    <div class="kart">
+      <h2>Katılım Karnesi</h2>
+      <p class="alt">Danışman bazında toplam katılım oranı.</p>
+      <div id="karneAlan"><div class="yukleniyor">Hesaplanıyor…</div></div>
+    </div>`;
+  karneYukle(oturumlar||[], kayitlar||[]);
+}
+
+async function karneYukle(oturumlar, kayitlar){
+  let sorgu = sb.from("profiles").select("id,ad,grup_id,durum")
+    .eq("rol","danisman").eq("onay",true);
+  if(SECILI_GRUP) sorgu = sorgu.eq("grup_id", SECILI_GRUP);
+  const {data:danlar} = await sorgu.order("ad");
+  const el = $("#karneAlan"); if(!el) return;
+
+  const satir = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif").map(d=>{
+    const k = kayitlar.filter(r=>r.user_id===d.id);
+    const geldi = k.filter(r=>r.durum==="katildi").length;
+    const mazeret = k.filter(r=>r.durum==="mazeretli").length;
+    const gelmedi = k.filter(r=>r.durum==="gelmedi").length;
+    const oran = k.length? geldi/k.length*100 : 0;
+    return {ad:d.ad, toplam:k.length, geldi, mazeret, gelmedi, oran};
+  }).sort((a,b)=>b.oran-a.oran);
+
+  el.innerHTML = satir.length? `
+    <div class="tablo-kaydir">
+      <table>
+        <tr><th>Danışman</th><th>Oturum</th><th>Katıldı</th><th>Mazeretli</th>
+            <th>Gelmedi</th><th>Oran</th></tr>
+        ${satir.map(s=>`<tr>
+          <td><b>${esc(s.ad)}</b></td>
+          <td>${s.toplam}</td>
+          <td style="color:var(--green)">${s.geldi}</td>
+          <td style="color:var(--orange)">${s.mazeret}</td>
+          <td style="color:var(--red)">${s.gelmedi}</td>
+          <td style="color:${skorRenk(s.oran)}"><b>${s.oran.toFixed(0)}%</b></td>
+        </tr>`).join("")}
+      </table>
+    </div>
+    <div class="kaydir-ipucu">← Kaydırarak tüm sütunları görebilirsin</div>`
+    : "<p class='alt'>Danışman yok.</p>";
+}
+
+async function oturumEkle(btn){
+  const m = $("#oturumMesaj");
+  const baslik = $("#oBaslik").value.trim();
+  if(baslik.length < 2){ m.className="uyari hata"; m.textContent="Oturum adı gerekli."; return; }
+  await butonlaIsle(btn, "Oluşturuluyor…", async ()=>{
+    const {data, error} = await sb.from("oturum").insert({
+      baslik, tarih: $("#oTarih").value,
+      hafta: $("#oHafta").value ? +$("#oHafta").value : null,
+      grup_id: $("#oGrup").value ? +$("#oGrup").value : null,
+      olusturan: BEN.id
+    }).select().single();
+    if(error){ m.className="uyari hata"; m.textContent="Oluşturulamadı: "+error.message; return; }
+    ACIK_OTURUM = data.id;
+    ekranYoklama();
+  });
+}
+
+async function oturumSil(id, ad){
+  if(!confirm(ad + " oturumu ve tüm yoklama kayıtları silinecek.\n\nDevam edilsin mi?")) return;
+  const {error} = await sb.from("oturum").delete().eq("id", id);
+  if(error){ alert("Silinemedi: "+error.message); return; }
+  ekranYoklama();
+}
+
+function oturumAc(id){ ACIK_OTURUM = id; ekranYoklama(); }
+function oturumKapat(){ ACIK_OTURUM = null; ekranYoklama(); }
+
+async function oturumYoklamaEkrani(oid, oturumlar, kayitlar){
+  const o = (oturumlar||[]).find(x=>x.id===oid);
+  if(!o){ ACIK_OTURUM = null; return ekranYoklama(); }
+
+  let sorgu = sb.from("profiles").select("id,ad,bolge,grup_id,durum")
+    .eq("rol","danisman").eq("onay",true);
+  if(o.grup_id) sorgu = sorgu.eq("grup_id", o.grup_id);
+  const {data:danlar} = await sorgu.order("ad");
+  const aktif = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif");
+  const mevcut = id => (kayitlar||[]).find(k=>k.oturum_id===oid && k.user_id===id);
+
+  $("#icerik").innerHTML = `
+    <div class="kart">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div>
+          <h2 style="margin:0">${esc(o.baslik)}</h2>
+          <div class="bilgi">${tarihYaz(o.tarih)}${o.hafta? " · Hafta "+o.hafta:""} ·
+            ${o.grup_id? esc(grupAdi(o.grup_id)) : "Tüm ekipler"} · ${aktif.length} danışman</div>
+        </div>
+        <button class="btn ince gri" onclick="oturumKapat()">← Oturum listesi</button>
+      </div>
+
+      <div style="margin:14px 0;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ince" onclick="hepsiIsaretle('katildi')">Hepsi Katıldı</button>
+        <button class="btn ince gri" onclick="hepsiIsaretle('gelmedi')">Hepsi Gelmedi</button>
+      </div>
+
+      <div id="yoklamaListe">
+        ${aktif.map(d=>{
+          const k = mevcut(d.id);
+          const secili = k? k.durum : "";
+          return `<div class="gorev-satir" style="justify-content:space-between;align-items:center">
+            <div style="min-width:0">
+              <div style="font-weight:600;font-size:14px">${esc(d.ad)}</div>
+              <div class="bilgi">${esc(d.bolge||"—")}</div>
+            </div>
+            <div style="display:flex;gap:4px;flex-shrink:0" data-uid="${d.id}">
+              ${YOKLAMA_DURUM.map(([kod,ad,renk])=>`
+                <button onclick="durumSec('${d.id}','${kod}')"
+                  data-durum="${kod}"
+                  style="border:1px solid ${secili===kod?renk:"var(--border)"};
+                    background:${secili===kod?renk:"#fff"};
+                    color:${secili===kod?"#fff":"var(--gray)"};
+                    padding:7px 11px;border-radius:8px;font-size:12.5px;
+                    font-weight:${secili===kod?"700":"400"};cursor:pointer">
+                  ${ad}</button>`).join("")}
+            </div>
+          </div>`;
+        }).join("") || "<p class='alt'>Bu ekipte aktif danışman yok.</p>"}
+      </div>
+
+      <button class="btn" style="margin-top:14px" onclick="yoklamaKaydet(this)">YOKLAMAYI KAYDET</button>
+      <div id="yoklamaMesaj" class="uyari"></div>
+    </div>`;
+
+  // seçimleri bellekte tut
+  window.__yoklama = {};
+  aktif.forEach(d=>{ const k = mevcut(d.id); if(k) window.__yoklama[d.id] = k.durum; });
+}
+
+function durumSec(uid, kod){
+  window.__yoklama = window.__yoklama || {};
+  window.__yoklama[uid] = kod;
+  const kap = document.querySelector(`[data-uid="${uid}"]`);
+  if(!kap) return;
+  kap.querySelectorAll("button").forEach(b=>{
+    const d = b.dataset.durum;
+    const renk = (YOKLAMA_DURUM.find(y=>y[0]===d)||[])[2] || "var(--border)";
+    const aktif = d === kod;
+    b.style.background = aktif? renk : "#fff";
+    b.style.color = aktif? "#fff" : "var(--gray)";
+    b.style.borderColor = aktif? renk : "var(--border)";
+    b.style.fontWeight = aktif? "700" : "400";
+  });
+}
+
+function hepsiIsaretle(kod){
+  document.querySelectorAll("#yoklamaListe [data-uid]").forEach(el=>
+    durumSec(el.dataset.uid, kod));
+}
+
+async function yoklamaKaydet(btn){
+  const m = $("#yoklamaMesaj");
+  const secimler = window.__yoklama || {};
+  const kayitlar = Object.entries(secimler).map(([uid,durum])=>({
+    oturum_id: ACIK_OTURUM, user_id: uid, durum }));
+  if(!kayitlar.length){ m.className="uyari hata";
+    m.textContent="Hiç işaretleme yapılmadı."; return; }
+
+  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    const {error} = await sb.from("yoklama")
+      .upsert(kayitlar, {onConflict:"oturum_id,user_id"});
+    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
+    m.className="uyari ok";
+    m.textContent = kayitlar.length + " danışman için yoklama kaydedildi.";
+    setTimeout(()=>m.className="uyari", 5000);
+  });
+}
+
+/* ---------- DANIŞMAN: Yoklamam ---------- */
+async function ekranYoklamam(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Yükleniyor…</div>`;
+  const [{data:kayitlar, error}, {data:oturumlar}] = await Promise.all([
+    sb.from("yoklama").select("*").eq("user_id",BEN.id),
+    sb.from("oturum").select("*").order("tarih",{ascending:false})
+  ]);
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)}</p></div>`; return;
+  }
+  const bul = oid => (oturumlar||[]).find(o=>o.id===oid);
+  const liste = (kayitlar||[]).map(k=>({...k, oturum:bul(k.oturum_id)}))
+    .filter(k=>k.oturum)
+    .sort((a,b)=> new Date(b.oturum.tarih) - new Date(a.oturum.tarih));
+
+  const geldi = liste.filter(k=>k.durum==="katildi").length;
+  const oran = liste.length? geldi/liste.length*100 : 0;
+
+  $("#icerik").innerHTML = `
+    <div class="kutucuklar">
+      <div class="kutu"><span>Katılım Oranın</span>
+        <b style="color:${skorRenk(oran)}">${oran.toFixed(0)}%</b></div>
+      <div class="kutu"><span>Katıldığın</span><b>${geldi}</b></div>
+      <div class="kutu"><span>Toplam Oturum</span><b>${liste.length}</b></div>
+    </div>
+    <div class="kart">
+      <h2>Yoklama Geçmişin</h2>
+      <p class="alt">Yoklamayı yöneticin alır. Hatalı görünen bir kayıt varsa mesaj at.</p>
+      ${liste.length? liste.map(k=>{
+        const d = YOKLAMA_DURUM.find(y=>y[0]===k.durum) || ["","—","var(--gray)"];
+        return `<div class="dan-satir" style="cursor:default">
+          <div style="min-width:0">
+            <div class="ad">${esc(k.oturum.baslik)}</div>
+            <div class="bilgi">${tarihYaz(k.oturum.tarih)}${
+              k.oturum.hafta? " · Hafta "+k.oturum.hafta:""}</div>
+          </div>
+          <div style="color:${d[2]};font-weight:700;font-size:13.5px">${d[1]}</div>
+        </div>`;
+      }).join("") : "<p class='alt'>Henüz yoklama kaydın yok.</p>"}
+    </div>`;
 }
 
 /* ==========================================================
@@ -1251,162 +1621,6 @@ async function kaynakSil(id){
   if(!confirm("Bu kaynak silinsin mi?")) return;
   await sb.from("kaynak").delete().eq("id",id);
   ekranKaynaklar();
-}
-
-/* ==========================================================
-   YOKLAMA — YÖNETİM PANELİ
-   ========================================================== */
-let YOKLAMA_SECILI_TARIH = new Date().toISOString().slice(0,10);
-let YOKLAMA_SECILI_GRUP = "";
-let YOKLAMA_ETKINLIK = "Ofis Toplantısı";
-let YOKLAMA_AY = new Date().toISOString().slice(0,7);
-
-function yoklamaYuzde(a,b){ return b ? Math.round((a/b)*100) : 0; }
-function yoklamaTarihBaslik(t){
-  if(!t) return "—";
-  const d=new Date(t+"T00:00:00");
-  return d.toLocaleDateString("tr-TR",{day:"2-digit",month:"long",year:"numeric"});
-}
-function yoklamaKarti(ikon,baslik,deger,alt=""){
-  return `<div style="background:linear-gradient(135deg,#fff,#f6f8fb);border:1px solid #e5e9ef;border-radius:16px;padding:18px;min-height:112px;box-shadow:0 5px 18px rgba(15,23,42,.05)"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span style="font-size:23px">${ikon}</span><span style="font-size:12px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px">${baslik}</span></div><div style="font-size:30px;font-weight:900;color:var(--navy);margin-top:8px">${deger}</div><div style="font-size:12px;color:#64748b;margin-top:2px">${alt}</div></div>`;
-}
-
-async function ekranYoklama(){
-  if(!duzenlerMi()){
-    $("#icerik").innerHTML=`<div class="kart"><h2>Yoklama</h2><p class="alt">Yoklama kaydetme yetkiniz bulunmuyor.</p></div>`;
-    return;
-  }
-  const {data:gruplar}=await sb.from("grup").select("*").order("id");
-  GRUPLAR_LISTE=gruplar||GRUPLAR_LISTE;
-  if(!YOKLAMA_SECILI_GRUP && GRUPLAR_LISTE.length) YOKLAMA_SECILI_GRUP=String(GRUPLAR_LISTE[0].id);
-  await yoklamaEkraniYukle();
-}
-
-async function yoklamaEkraniYukle(){
-  const tarih=$("#yTarih")?.value || YOKLAMA_SECILI_TARIH;
-  const grupId=$("#yGrup")?.value || YOKLAMA_SECILI_GRUP;
-  const etkinlik=$("#yEtkinlik")?.value || YOKLAMA_ETKINLIK;
-  YOKLAMA_SECILI_TARIH=tarih; YOKLAMA_SECILI_GRUP=grupId; YOKLAMA_ETKINLIK=etkinlik;
-
-  let sorgu=sb.from("profiles").select("id,ad,bolge,grup_id,durum").eq("rol","danisman").eq("onay",true).eq("durum","Aktif");
-  if(grupId) sorgu=sorgu.eq("grup_id",grupId);
-  const {data:danlar}=await sorgu.order("ad");
-  const {data:mevcut}=await sb.from("yoklama").select("user_id,katildi,notu").eq("tarih",tarih).eq("etkinlik",etkinlik).eq("grup_id",grupId);
-  const map=Object.fromEntries((mevcut||[]).map(x=>[x.user_id,x]));
-  const katilan=(danlar||[]).filter(d=>map[d.id]?.katildi).length;
-  const toplam=(danlar||[]).length;
-  const oran=yoklamaYuzde(katilan,toplam);
-
-  const liste=(danlar||[]).map(d=>{
-    const y=map[d.id];
-    return `<label class="dan-satir" style="cursor:pointer;margin-bottom:7px;gap:12px;align-items:center;padding:12px 14px;border-radius:12px;border:1px solid #edf0f4;background:${y?.katildi?'#f0fdf4':'#fff'}">
-      <input type="checkbox" class="yoklama-kisi" data-id="${d.id}" ${y?.katildi?'checked':''} onchange="yoklamaCanliOzet()" style="width:20px;height:20px;accent-color:var(--navy)">
-      <div style="width:38px;height:38px;border-radius:50%;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-weight:900;color:var(--navy)">${esc((d.ad||'?').trim().charAt(0).toUpperCase())}</div>
-      <div style="flex:1;min-width:0"><div class="ad">${esc(d.ad)}</div><div class="bilgi">${esc(d.bolge||'—')}</div></div>
-      <span class="yoklama-durum" data-for="${d.id}" style="font-size:11px;font-weight:800;color:${y?.katildi?'#15803d':'#94a3b8'}">${y?.katildi?'KATILDI':'BEKLENİYOR'}</span>
-    </label>`;
-  }).join("")||`<p class="alt">Bu grupta aktif danışman yok.</p>`;
-
-  $("#icerik").innerHTML=`
-  <div style="display:grid;gap:16px">
-    <div class="kart" style="padding:22px;background:linear-gradient(135deg,var(--navy),#183a67);color:#fff;border:none;overflow:hidden;position:relative">
-      <div style="position:relative;z-index:1;display:flex;justify-content:space-between;gap:20px;align-items:center;flex-wrap:wrap">
-        <div><div style="font-size:12px;font-weight:800;letter-spacing:1px;opacity:.72;text-transform:uppercase">RE/MAX EKSEN · YÖNETİM</div><h2 style="color:#fff;margin:6px 0 4px">Yoklama Merkezi</h2><div style="opacity:.82">Toplantı ve eğitim katılımını düzenli takip edin, geçmiş performansı ölçün.</div></div>
-        <div style="text-align:right"><div style="font-size:12px;opacity:.72">SEÇİLİ GÜN</div><div style="font-size:20px;font-weight:900">${esc(yoklamaTarihBaslik(tarih))}</div></div>
-      </div>
-    </div>
-
-    <div class="metrik-grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-      ${yoklamaKarti('👥','Toplam',toplam,'aktif danışman')}
-      ${yoklamaKarti('✅','Katılan',katilan,'bugünkü yoklama')}
-      ${yoklamaKarti('⏳','Katılmayan',Math.max(0,toplam-katilan),'henüz işaretlenmeyen / katılmayan')}
-      ${yoklamaKarti('📊','Katılım',`%${oran}`,'seçili etkinlik')}
-    </div>
-
-    <div class="kart">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-        <div><h2 style="margin-bottom:4px">Yeni Yoklama</h2><p class="alt">Tarih, ekip ve etkinliği seçin; ardından katılım durumlarını işaretleyin.</p></div>
-        <div style="padding:9px 12px;border-radius:999px;background:#f1f5f9;color:var(--navy);font-weight:900;font-size:13px">%${oran} katılım</div>
-      </div>
-      <div class="metrik-grid" style="margin-top:16px">
-        <div class="alan"><label>Tarih</label><input type="date" id="yTarih" value="${esc(tarih)}" onchange="yoklamaEkraniYukle()"></div>
-        <div class="alan"><label>Ekip</label><select id="yGrup" onchange="yoklamaEkraniYukle()">${GRUPLAR_LISTE.map(g=>`<option value="${g.id}" ${String(g.id)===String(grupId)?'selected':''}>${esc(g.ad)}</option>`).join('')}</select></div>
-        <div class="alan"><label>Etkinlik</label><select id="yEtkinlik" onchange="yoklamaEkraniYukle()"><option ${etkinlik==='Ofis Toplantısı'?'selected':''}>Ofis Toplantısı</option><option ${etkinlik==='Eğitim'?'selected':''}>Eğitim</option><option ${etkinlik==='Koçluk'?'selected':''}>Koçluk</option><option ${etkinlik==='Fast Camp'?'selected':''}>Fast Camp</option><option ${etkinlik==='Diğer'?'selected':''}>Diğer</option></select></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin:18px 0 10px;flex-wrap:wrap"><b>Danışmanlar</b><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ince gri" onclick="yoklamaTumunuSec(true)">Tümünü İşaretle</button><button class="btn ince gri" onclick="yoklamaTumunuSec(false)">Tümünü Kaldır</button></div></div>
-      <div id="yoklamaKisiListesi">${liste}</div>
-      <div class="alan" style="margin-top:14px"><label>Toplu not (isteğe bağlı)</label><input id="yNot" type="text" placeholder="Örn: Geç geldi / mazeretli / toplantı sonrası katıldı"></div>
-      <button class="btn" style="margin-top:12px;width:100%" onclick="yoklamaKaydet(this)">✓ Yoklamayı Kaydet</button>
-      <div id="yoklamaMesaj" class="uyari"></div>
-    </div>
-
-    <div class="kart">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><h2 style="margin-bottom:4px">Bugünkü Durum</h2><p class="alt">Katılan ve katılmayan danışmanları hızlıca görün.</p></div><button class="btn ince gri" onclick="yoklamaEkraniYukle()">↻ Yenile</button></div>
-      <div id="yoklamaDurumListesi" style="margin-top:12px">${yoklamaDurumListesi(danlar||[],map)}</div>
-    </div>
-
-    <div class="kart">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><h2 style="margin-bottom:4px">Aylık Katılım Raporu</h2><p class="alt">Seçili ekip için ay bazında gerçek yoklama kayıtları.</p></div><div class="alan" style="min-width:180px;margin:0"><input type="month" id="yAy" value="${esc(YOKLAMA_AY)}" onchange="YOKLAMA_AY=this.value;yoklamaAylikRapor()"></div></div>
-      <div id="yoklamaAylikRapor" style="margin-top:16px">Yükleniyor…</div>
-    </div>
-
-    <div class="kart"><h2>Yoklama Geçmişi</h2><div id="yoklamaGecmis" style="margin-top:12px">Yükleniyor…</div></div>
-  </div>`;
-  yoklamaGecmisYukle();
-  yoklamaAylikRapor();
-}
-
-function yoklamaDurumListesi(danlar,map){
-  if(!danlar.length) return `<p class="alt">Gösterilecek aktif danışman yok.</p>`;
-  const kat=danlar.filter(d=>map[d.id]?.katildi), yok=danlar.filter(d=>!map[d.id]?.katildi);
-  const grup=(baslik,arr,renk)=>`<div style="margin-bottom:18px"><div style="font-size:12px;font-weight:900;color:${renk};text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">${baslik} · ${arr.length}</div>${arr.map(d=>`<div class="dan-satir" style="cursor:default;margin-bottom:6px"><div style="width:34px;height:34px;border-radius:50%;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-weight:900;color:var(--navy)">${esc((d.ad||'?').charAt(0).toUpperCase())}</div><div><div class="ad">${esc(d.ad)}</div><div class="bilgi">${esc(d.bolge||'—')}</div></div></div>`).join('')||`<div class="alt">Yok.</div>`}</div>`;
-  return grup('Katılanlar',kat,'#15803d')+grup('Katılmayanlar / işaretlenmeyenler',yok,'#b45309');
-}
-
-function yoklamaCanliOzet(){
-  const boxes=[...document.querySelectorAll('.yoklama-kisi')];
-  boxes.forEach(x=>{const row=x.closest('.dan-satir'),st=row?.querySelector('.yoklama-durum');if(st){st.textContent=x.checked?'KATILDI':'BEKLENİYOR';st.style.color=x.checked?'#15803d':'#94a3b8';}if(row)row.style.background=x.checked?'#f0fdf4':'#fff';});
-}
-function yoklamaTumunuSec(deger){document.querySelectorAll('.yoklama-kisi').forEach(x=>x.checked=deger);yoklamaCanliOzet();}
-
-async function yoklamaKaydet(btn){
-  const tarih=$("#yTarih").value, grup_id=$("#yGrup").value, etkinlik=$("#yEtkinlik").value, notu=$("#yNot").value.trim();
-  if(!tarih||!grup_id||!etkinlik) return mesaj('Tarih, ekip ve etkinlik seçilmelidir.','hata');
-  const ids=[...document.querySelectorAll('.yoklama-kisi')].map(x=>({id:x.dataset.id,katildi:x.checked}));
-  if(!ids.length) return mesaj('Bu ekipte aktif danışman bulunmuyor.','hata');
-  await butonlaIsle(btn,'Kaydediliyor…',async()=>{
-    const rows=ids.map(x=>({user_id:x.id,tarih,grup_id:+grup_id,etkinlik,katildi:x.katildi,notu,created_by:BEN.id}));
-    const {error}=await sb.from('yoklama').upsert(rows,{onConflict:'tarih,etkinlik,grup_id,user_id'});
-    const m=$("#yoklamaMesaj");
-    if(error){m.className='uyari hata';m.textContent='Yoklama kaydedilemedi: '+error.message;}
-    else{m.className='uyari ok';m.textContent=`Yoklama kaydedildi. ${ids.filter(x=>x.katildi).length} kişi katıldı.`;await yoklamaEkraniYukle();}
-  });
-}
-
-async function yoklamaAylikRapor(){
-  const el=$("#yoklamaAylikRapor");if(!el)return;
-  const ay=$("#yAy")?.value||YOKLAMA_AY, grupId=$("#yGrup")?.value||YOKLAMA_SECILI_GRUP;
-  if(!ay||!grupId){el.innerHTML='<p class="alt">Rapor için ekip ve ay seçin.</p>';return;}
-  const ilk=ay+'-01';
-  const sonD=new Date(Number(ay.slice(0,4)),Number(ay.slice(5,7)),0).toISOString().slice(0,10);
-  const [{data:danlar},{data:kayitlar}]=await Promise.all([
-    sb.from('profiles').select('id,ad,bolge').eq('rol','danisman').eq('onay',true).eq('durum','Aktif').eq('grup_id',grupId).order('ad'),
-    sb.from('yoklama').select('tarih,etkinlik,user_id,katildi').eq('grup_id',grupId).gte('tarih',ilk).lte('tarih',sonD)
-  ]);
-  const rows=(danlar||[]).map(d=>{
-    const k=(kayitlar||[]).filter(x=>x.user_id===d.id), kat=k.filter(x=>x.katildi).length;
-    return {d,top:k.length,kat,oran:yoklamaYuzde(kat,k.length)};
-  });
-  const toplam=rows.reduce((s,x)=>s+x.top,0), toplamKat=rows.reduce((s,x)=>s+x.kat,0);
-  const ort=yoklamaYuzde(toplamKat,toplam);
-  el.innerHTML=`<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:16px"><div style="padding:14px;border-radius:12px;background:#f8fafc"><div class="bilgi">YOKLAMA</div><b style="font-size:22px;color:var(--navy)">${Math.round(toplam/(rows.length||1))||0}</b><div class="bilgi">kişi-kayıt ortalaması</div></div><div style="padding:14px;border-radius:12px;background:#f8fafc"><div class="bilgi">KATILAN</div><b style="font-size:22px;color:var(--navy)">${toplamKat}</b><div class="bilgi">toplam katılım</div></div><div style="padding:14px;border-radius:12px;background:#f8fafc"><div class="bilgi">GENEL KATILIM</div><b style="font-size:22px;color:var(--navy)">%${ort}</b><div class="bilgi">seçili ay</div></div></div><div style="overflow:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:10px;border-bottom:1px solid #e5e7eb">Danışman</th><th style="padding:10px;border-bottom:1px solid #e5e7eb">Yoklama</th><th style="padding:10px;border-bottom:1px solid #e5e7eb">Katıldı</th><th style="padding:10px;border-bottom:1px solid #e5e7eb">Katılım</th></tr></thead><tbody>${rows.map(x=>`<tr><td style="padding:10px;border-bottom:1px solid #f1f5f9;font-weight:800">${esc(x.d.ad)}</td><td style="padding:10px;text-align:center;border-bottom:1px solid #f1f5f9">${x.top}</td><td style="padding:10px;text-align:center;border-bottom:1px solid #f1f5f9">${x.kat}</td><td style="padding:10px;text-align:center;border-bottom:1px solid #f1f5f9"><span style="font-weight:900;color:${x.oran>=80?'#15803d':x.oran>=60?'#b45309':'#b91c1c'}">%${x.oran}</span></td></tr>`).join('')||'<tr><td colspan="4" class="alt" style="padding:16px">Bu ay henüz yoklama kaydı yok.</td></tr>'}</tbody></table></div>`;
-}
-
-async function yoklamaGecmisYukle(){
-  const el=$("#yoklamaGecmis");if(!el)return;
-  const {data}=await sb.from('yoklama').select('tarih,etkinlik,grup_id,katildi,user_id').order('tarih',{ascending:false}).limit(300);
-  const gr=(data||[]).reduce((m,x)=>{const k=`${x.tarih}|${x.etkinlik}|${x.grup_id}`;(m[k]??=[]).push(x);return m;},{});
-  el.innerHTML=Object.entries(gr).map(([k,a])=>{const [t,e,g]=k,kat=a.filter(x=>x.katildi).length,oran=yoklamaYuzde(kat,a.length);return `<div class="dan-satir" style="cursor:default;margin-bottom:7px"><div style="min-width:0"><div class="ad">${esc(yoklamaTarihBaslik(t))} · ${esc(e)}</div><div class="bilgi">${esc(grupAdi(g))} · ${a.length} kayıt</div></div><div style="text-align:right"><b style="color:var(--navy)">${kat}/${a.length}</b><div class="bilgi">%${oran}</div></div></div>`}).join('')||`<p class="alt">Henüz yoklama kaydı yok.</p>`;
 }
 
 /* ==========================================================
