@@ -182,7 +182,7 @@ font-size:13px;margin-top:12px}
 
       <label id="kBolgeEtiket">Uzmanlık Bölgesi</label>
       <input type="text" id="kBolge" placeholder="Üsküdar">
-      <label>Ekip Kodu</label>
+      <label>Kayıt Kodu</label>
       <input type="text" id="kKod" placeholder="Mentörünüzden alın" oninput="grupKontrol()">
       <div id="grupBilgi" style="font-size:12px;color:var(--gray);margin-top:-6px;margin-bottom:8px"></div>
       <button class="btn" onclick="kayitOl()">Kayıt Ol</button>
@@ -287,18 +287,17 @@ const ROLLER = {
 };
 const ROL_ADI = Object.fromEntries(Object.entries(ROLLER).map(([k,v])=>[k,v.ad]));
 const yetki = () => (ROLLER[BEN?.rol]?.y ?? 0);
-const yonetimMi   = () => yetki() >= 1;   // ekibi görebilir
+const yonetimMi   = () => yetki() >= 1;   // tüm danışmanları görebilir
 const duzenlerMi  = () => yetki() >= 2;   // veri/görev düzenleyebilir
 const ustYonetimMi= () => yetki() >= 3;   // hedef ve rol değiştirebilir
+
 
 let BEN = null;      // profil
 let HEDEF = {};      // hedefler
 let AKTIF_SEKME = "";
 let SECILI_DAN = null;
-let GRUPLAR_LISTE = [];
-let SECILI_GRUP = "";     // "" = tümü
-let KIYAS_MOD = "kisi";   // "kisi" | "grup"
 let AKTIF_HAFTA = 1;      // programın kaçıncı haftası
+let OFIS_KODU = "";      // tek kayıt kodu
 let BEKLEYEN_SORU = 0;   // yönetim: cevap bekleyen soru sayısı
 let YENI_CEVAP = 0;      // danışman: okunmamış cevap sayısı
 
@@ -347,17 +346,17 @@ async function kayitOl(){
   if(!ad||!email||!password) return mesaj("Ad, e-posta ve şifre zorunlu.","hata");
   if(password.length<6) return mesaj("Şifre en az 6 karakter olmalı.","hata");
 
-  if(!kod) return mesaj("Ekip kodu gerekli. Mentörünüzden alın.","hata");
-  const {data:grup, error:gErr} = await sb.from("grup")
-    .select("id,ad,durum").eq("kod",kod).maybeSingle();
+  if(!kod) return mesaj("Kayıt kodu gerekli. Mentörünüzden alın.","hata");
+  const {data:ayar, error:gErr} = await sb.from("ayar")
+    .select("deger").eq("anahtar","ofis_kodu").maybeSingle();
   if(gErr) return mesaj("Kod doğrulanamadı. Yöneticinize bildirin.","hata");
-  if(!grup) return mesaj("Ekip kodu hatalı. Mentörünüzden alın.","hata");
-  if(grup.durum !== "aktif") return mesaj("Bu ekibin kaydı kapanmış.","hata");
+  if(!ayar?.deger || kod.toUpperCase() !== String(ayar.deger).toUpperCase())
+    return mesaj("Kayıt kodu hatalı. Mentörünüzden alın.","hata");
 
   const {error} = await sb.auth.signUp({email, password,
-    options:{data:{ad, bolge, rol, grup_kod:kod}}});
+    options:{data:{ad, bolge, rol}}});
   if(error) return mesaj("Kayıt başarısız: "+error.message,"hata");
-  mesaj("Kaydın alındı ("+grup.ad+" · "+(ROLLER[rol]?.ad||rol)+
+  mesaj("Kaydın alındı ("+(ROLLER[rol]?.ad||rol)+
         "). Yöneticin onayladıktan sonra giriş yapabilirsin.","ok");
   setTimeout(()=>ekranDegis("giris"), 2200);
 }
@@ -371,10 +370,11 @@ async function grupKontrol(){
   const kod = $("#kKod").value.trim();
   const el = $("#grupBilgi");
   if(!kod){ el.textContent=""; return; }
-  const {data:grup} = await sb.from("grup").select("ad,durum").eq("kod",kod).maybeSingle();
-  if(!grup){ el.textContent = "Kod bulunamadı"; el.style.color = "var(--red)"; }
-  else if(grup.durum!=="aktif"){ el.textContent = grup.ad + " — kayıt kapalı"; el.style.color="var(--orange)"; }
-  else { el.textContent = "✓ " + grup.ad; el.style.color = "var(--green)"; }
+  const {data:ayar} = await sb.from("ayar")
+    .select("deger").eq("anahtar","ofis_kodu").maybeSingle();
+  if(ayar?.deger && kod.toUpperCase() === String(ayar.deger).toUpperCase()){
+    el.textContent = "✓ Kod doğru"; el.style.color = "var(--green)";
+  } else { el.textContent = "Kod hatalı"; el.style.color = "var(--red)"; }
 }
 
 async function sifreSifirla(){
@@ -421,18 +421,11 @@ async function baslat(){
   // Emniyet ağı: veritabanı tetikleyicisi çalışmamışsa profili burada oluştur
   if(!profil){
     const ust = session.user.user_metadata || {};
-    // Kayıt sırasındaki ekip kodundan grubu bul (tetikleyici çalışmadıysa)
-    let grupId = null;
-    if(ust.grup_kod){
-      const {data:g} = await sb.from("grup").select("id").eq("kod",ust.grup_kod).maybeSingle();
-      grupId = g?.id ?? null;
-    }
     const {data:yeni, error:pErr} = await sb.from("profiles").insert({
       id: session.user.id,
       ad: ust.ad || session.user.email?.split("@")[0] || "",
       rol: ust.rol || "danisman",
-      bolge: ust.bolge || "",
-      grup_id: grupId
+      bolge: ust.bolge || ""
     }).select().single();
     if(pErr || !yeni){
       mesaj("Profil oluşturulamadı: " + (pErr?.message||"bilinmeyen hata") +
@@ -470,11 +463,10 @@ async function baslat(){
 
   $("#girisEkran").classList.add("hide");
   $("#uygulama").classList.remove("hide");
-  const {data:grp} = await sb.from("grup").select("*").order("id");
-  GRUPLAR_LISTE = grp || [];
-
-  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
-  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
+  const {data:ayarlar} = await sb.from("ayar").select("anahtar,deger");
+  const ayarBul = k => (ayarlar||[]).find(a=>a.anahtar===k)?.deger;
+  OFIS_KODU = ayarBul("ofis_kodu") || "";
+  AKTIF_HAFTA = Math.min(Math.max(parseInt(ayarBul("aktif_hafta") || "1", 10) || 1, 1), 10);
 
   await sayaclariYenile();
 
@@ -487,16 +479,16 @@ async function baslat(){
 function sekmeleriKur(ac){
   let liste;
   if(yonetimMi()){
-    liste = [["ekip","Ekip Özeti"],["detay","Danışman Detayı"],["kiyas","Karşılaştırma"],
+    liste = [["pazartesi","Pazartesi Raporu"],
+             ["ekip","Danışmanlar"],["detay","Danışman Detayı"],
+             ["birebir","Birebir Görüşmeler"],["kiyas","Karşılaştırma"],
              ["mesajlar", "Mesajlar" + (BEKLEYEN_SORU? ` (${BEKLEYEN_SORU})` : "")],
-             ["yoklama","Yoklama"],
              ["kaynaklar","Eğitim Merkezi"]];
     if(ustYonetimMi()) liste.push(["ayar","Yönetim"]);
   } else {
     liste = [["girisim","Haftalık Girişim"],["benim","Performansım"],
              ["gorevlerim","Görevlerim"],
              ["mesaj","Mesajlar" + (YENI_CEVAP? ` (${YENI_CEVAP})` : "")],
-             ["yoklamam","Yoklamam"],
              ["kaynaklar","Eğitim Merkezi"]];
   }
   $("#sekmeler").innerHTML = liste.map(([k,ad])=>
@@ -507,7 +499,7 @@ function sekmeleriKur(ac){
 // Logo tıklanınca panelin ilk sekmesine döner (çıkış yapmaz)
 function anaSayfa(){
   if(!BEN) return;
-  sekmeAc(yonetimMi() ? "ekip" : "girisim");
+  sekmeAc(yonetimMi() ? "pazartesi" : "girisim");
   window.scrollTo({top:0, behavior:"smooth"});
 }
 
@@ -524,7 +516,7 @@ function sekmeAc(k){
     b.classList.toggle("aktif", b.dataset.k===k));
   ({girisim:ekranGirisim, benim:ekranBenim, gorevlerim:ekranGorevlerim,
     mesaj:ekranMesaj, mesajlar:ekranMesajlar, kaynaklar:ekranKaynaklar,
-    yoklama:ekranYoklama, yoklamam:ekranYoklamam,
+    pazartesi:ekranPazartesi, birebir:ekranBirebir,
     ekip:ekranEkip, detay:ekranDetay, kiyas:ekranKiyas, ayar:ekranAyar})[k]();
 }
 
@@ -824,19 +816,6 @@ async function sayaclariYenile(){
   }catch(e){ /* sayaç kritik değil */ }
 }
 
-const grupAdi = id => GRUPLAR_LISTE.find(g=>g.id===id)?.ad || "Grupsuz";
-
-const grupSecHtml = () => GRUPLAR_LISTE.length ? `
-  <div class="kart" style="padding:12px 16px">
-    <label style="margin-top:0">Ekip filtresi</label>
-    <select style="max-width:280px" onchange="SECILI_GRUP=this.value; sekmeAc(AKTIF_SEKME);">
-      <option value="">Tüm ekipler</option>
-      ${GRUPLAR_LISTE.map(g=>`<option value="${g.id}" ${
-        String(SECILI_GRUP)===String(g.id)?"selected":""}>${esc(g.ad)}${
-        g.durum!=="aktif"?" (kapalı)":""}</option>`).join("")}
-    </select>
-  </div>` : "";
-
 const tarihYaz = t => t ? new Date(t).toLocaleDateString("tr-TR",
   {day:"2-digit",month:"2-digit",year:"numeric"}) : "";
 
@@ -952,7 +931,7 @@ async function ekranMesajlar(){
   $("#icerik").innerHTML = `<div class="yukleniyor">Mesajlar yükleniyor…</div>`;
   const [{data:mesajlar, error}, {data:kisiler}] = await Promise.all([
     sb.from("mesaj").select("*").order("created_at"),
-    sb.from("profiles").select("id,ad,bolge,grup_id")
+    sb.from("profiles").select("id,ad,bolge")
   ]);
   if(error){
     $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
@@ -1008,11 +987,6 @@ async function ekranMesajlar(){
         <h2>📢 Toplu Mesaj (Duyuru)</h2>
         <p class="alt">Tek mesaj yaz, herkesin kendi özel akışına ayrı ayrı düşsün.
         Danışmanlar birbirinin mesajını görmez; cevap veren doğrudan sana yazar.</p>
-        <label>Kime</label>
-        <select id="topluHedef">
-          <option value="">Tüm aktif danışmanlar</option>
-          ${GRUPLAR_LISTE.map(g=>`<option value="${g.id}">${esc(g.ad)} ekibi</option>`).join("")}
-        </select>
         <label>Mesaj</label>
         <textarea id="topluMetin" rows="3"
           placeholder="Örn: Pazar akşamı bu haftanın rakamlarını girmeyi unutmayın."></textarea>
@@ -1091,13 +1065,11 @@ async function cevapGonder(btn){
 async function topluMesajGonder(btn){
   const m = $("#topluMesajMesaji");
   const metin = $("#topluMetin").value.trim();
-  const grup  = $("#topluHedef").value;
   if(metin.length < 2){ m.className="uyari hata"; m.textContent="Mesaj boş olamaz."; return; }
 
   await butonlaIsle(btn, "Gönderiliyor…", async ()=>{
     let sorgu = sb.from("profiles").select("id,ad")
       .eq("rol","danisman").eq("onay",true);
-    if(grup) sorgu = sorgu.eq("grup_id", grup);
     const {data:kisiler, error:kErr} = await sorgu;
     if(kErr){ m.className="uyari hata"; m.textContent="Liste alınamadı: "+kErr.message; return; }
 
@@ -1142,317 +1114,6 @@ async function yeniMesajGonder(btn){
     ACIK_SOHBET = alici;
     setTimeout(()=>ekranMesajlar(), 700);
   });
-}
-
-/* ==========================================================
-   YOKLAMA
-   ========================================================== */
-const YOKLAMA_DURUM = [
-  ["katildi",      "Katıldı",       "var(--green)"],
-  ["gelmedi",      "Gelmedi",       "var(--red)"],
-  ["mazeretli",    "Mazeretli",     "var(--orange)"],
-  ["kayitli_degil","Dahil Değildi", "var(--gray)"],
-];
-// İstatistiğe katılmayan durumlar
-const SAYILMAZ = ["kayitli_degil"];
-const sayilan = liste => liste.filter(r=>!SAYILMAZ.includes(r.durum));
-let ACIK_OTURUM = null;
-
-/* ---------- YÖNETİM: Yoklama ---------- */
-async function ekranYoklama(){
-  $("#icerik").innerHTML = `<div class="yukleniyor">Yoklama yükleniyor…</div>`;
-  const [{data:oturumlar, error}, {data:kayitlar}] = await Promise.all([
-    sb.from("oturum").select("*").order("tarih",{ascending:false}),
-    sb.from("yoklama").select("*")
-  ]);
-  if(error){
-    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
-      <p class="alt">${esc(error.message)} — YOKLAMA-EKLE.sql çalıştırıldı mı?</p></div>`; return;
-  }
-
-  // Açık oturum varsa yoklama alma ekranı
-  if(ACIK_OTURUM){ return oturumYoklamaEkrani(ACIK_OTURUM, oturumlar, kayitlar); }
-
-  const sayi = oid => (kayitlar||[]).filter(k=>k.oturum_id===oid);
-
-  $("#icerik").innerHTML = grupSecHtml() + `
-    <div class="kart" style="border-color:var(--navy)">
-      <h2>Yeni Oturum Aç</h2>
-      <p class="alt">Eğitim / Fast Camp oturumu oluştur, sonra yoklama al.</p>
-      <div class="metrik-grid">
-        <div class="alan"><label>Oturum adı</label>
-          <input type="text" id="oBaslik" placeholder="Hafta 3 — İtiraz Yönetimi"></div>
-        <div class="alan"><label>Tarih</label>
-          <input type="date" id="oTarih" value="${new Date().toISOString().slice(0,10)}"></div>
-        <div class="alan"><label>Program haftası</label>
-          <select id="oHafta"><option value="">Belirtme</option>
-            ${Array.from({length:10},(_,i)=>`<option value="${i+1}" ${
-              AKTIF_HAFTA===i+1?"selected":""}>Hafta ${i+1}</option>`).join("")}
-          </select></div>
-        <div class="alan"><label>Ekip</label>
-          <select id="oGrup"><option value="">Tüm ekipler</option>
-            ${GRUPLAR_LISTE.map(g=>`<option value="${g.id}" ${
-              String(SECILI_GRUP)===String(g.id)?"selected":""}>${esc(g.ad)}</option>`).join("")}
-          </select></div>
-      </div>
-      <button class="btn" onclick="oturumEkle(this)">Oturumu Oluştur ve Yoklamaya Geç</button>
-      <div id="oturumMesaj" class="uyari"></div>
-    </div>
-
-    <div class="kart">
-      <h2>Geçmiş Oturumlar</h2>
-      ${(oturumlar||[]).length? (oturumlar||[]).map(o=>{
-        const k = sayilan(sayi(o.id));
-        const geldi = k.filter(r=>r.durum==="katildi").length;
-        const oran = k.length? geldi/k.length*100 : 0;
-        return `<div class="dan-satir" onclick="oturumAc(${o.id})">
-          <div style="min-width:0">
-            <div class="ad">${esc(o.baslik)}</div>
-            <div class="bilgi">${tarihYaz(o.tarih)}${o.hafta? " · Hafta "+o.hafta:""} ·
-              ${k.length? `${geldi}/${k.length} katılım` : "yoklama alınmadı"}</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px">
-            ${k.length? `<div class="skor" style="color:${skorRenk(oran)}">${oran.toFixed(0)}%</div>`:""}
-            ${ustYonetimMi()? `<button title="Oturumu sil"
-              onclick="event.stopPropagation();oturumSil(${o.id},'${esc(o.baslik).replace(/'/g,"")}')"
-              style="background:none;border:none;color:var(--gray);font-size:16px;
-              cursor:pointer;padding:2px 5px">🗑</button>`:""}
-          </div>
-        </div>`;
-      }).join("") : "<p class='alt'>Henüz oturum oluşturulmadı.</p>"}
-    </div>
-
-    <div class="kart">
-      <h2>Katılım Karnesi</h2>
-      <p class="alt">Danışman bazında toplam katılım oranı.</p>
-      <div id="karneAlan"><div class="yukleniyor">Hesaplanıyor…</div></div>
-    </div>`;
-  karneYukle(oturumlar||[], kayitlar||[]);
-}
-
-async function karneYukle(oturumlar, kayitlar){
-  let sorgu = sb.from("profiles").select("id,ad,grup_id,durum")
-    .eq("rol","danisman").eq("onay",true);
-  if(SECILI_GRUP) sorgu = sorgu.eq("grup_id", SECILI_GRUP);
-  const {data:danlar} = await sorgu.order("ad");
-  const el = $("#karneAlan"); if(!el) return;
-
-  const satir = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif").map(d=>{
-    const hepsi = kayitlar.filter(r=>r.user_id===d.id);
-    const k = sayilan(hepsi);
-    const geldi = k.filter(r=>r.durum==="katildi").length;
-    const mazeret = k.filter(r=>r.durum==="mazeretli").length;
-    const gelmedi = k.filter(r=>r.durum==="gelmedi").length;
-    const disi = hepsi.length - k.length;
-    const oran = k.length? geldi/k.length*100 : 0;
-    return {ad:d.ad, toplam:k.length, geldi, mazeret, gelmedi, disi, oran};
-  }).sort((a,b)=>b.oran-a.oran);
-
-  el.innerHTML = satir.length? `
-    <div class="tablo-kaydir">
-      <table>
-        <tr><th>Danışman</th><th>Sayılan</th><th>Katıldı</th><th>Mazeretli</th>
-            <th>Gelmedi</th><th>Dahil Değil</th><th>Oran</th></tr>
-        ${satir.map(s=>`<tr>
-          <td><b>${esc(s.ad)}</b></td>
-          <td>${s.toplam}</td>
-          <td style="color:var(--green)">${s.geldi}</td>
-          <td style="color:var(--orange)">${s.mazeret}</td>
-          <td style="color:var(--red)">${s.gelmedi}</td>
-          <td style="color:var(--gray)">${s.disi||0}</td>
-          <td style="color:${s.toplam? skorRenk(s.oran):"var(--gray)"}">
-            <b>${s.toplam? s.oran.toFixed(0)+"%" : "—"}</b></td>
-        </tr>`).join("")}
-      </table>
-    </div>
-    <div class="kaydir-ipucu">← Kaydırarak tüm sütunları görebilirsin</div>`
-    : "<p class='alt'>Danışman yok.</p>";
-}
-
-async function oturumEkle(btn){
-  const m = $("#oturumMesaj");
-  const baslik = $("#oBaslik").value.trim();
-  if(baslik.length < 2){ m.className="uyari hata"; m.textContent="Oturum adı gerekli."; return; }
-  await butonlaIsle(btn, "Oluşturuluyor…", async ()=>{
-    const {data, error} = await sb.from("oturum").insert({
-      baslik, tarih: $("#oTarih").value,
-      hafta: $("#oHafta").value ? +$("#oHafta").value : null,
-      grup_id: $("#oGrup").value ? +$("#oGrup").value : null,
-      olusturan: BEN.id
-    }).select().single();
-    if(error){ m.className="uyari hata"; m.textContent="Oluşturulamadı: "+error.message; return; }
-    ACIK_OTURUM = data.id;
-    ekranYoklama();
-  });
-}
-
-async function oturumSil(id, ad){
-  if(!confirm(ad + " oturumu ve tüm yoklama kayıtları silinecek.\n\nDevam edilsin mi?")) return;
-  const {error} = await sb.from("oturum").delete().eq("id", id);
-  if(error){ alert("Silinemedi: "+error.message); return; }
-  ekranYoklama();
-}
-
-function oturumAc(id){ ACIK_OTURUM = id; ekranYoklama(); }
-function oturumKapat(){ ACIK_OTURUM = null; ekranYoklama(); }
-
-async function oturumYoklamaEkrani(oid, oturumlar, kayitlar){
-  const o = (oturumlar||[]).find(x=>x.id===oid);
-  if(!o){ ACIK_OTURUM = null; return ekranYoklama(); }
-
-  let sorgu = sb.from("profiles").select("id,ad,bolge,grup_id,durum,created_at,baslangic")
-    .eq("rol","danisman").eq("onay",true);
-  if(o.grup_id) sorgu = sorgu.eq("grup_id", o.grup_id);
-  const {data:danlar} = await sorgu.order("ad");
-  const aktif = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif");
-  const mevcut = id => (kayitlar||[]).find(k=>k.oturum_id===oid && k.user_id===id);
-
-  // Danışman oturum tarihinden SONRA sisteme girdiyse varsayılan "Dahil Değildi"
-  const sonradanMi = d => {
-    const giris = d.baslangic || d.created_at;
-    if(!giris) return false;
-    return new Date(giris) > new Date(o.tarih + "T23:59:59");
-  };
-
-  $("#icerik").innerHTML = `
-    <div class="kart">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div>
-          <h2 style="margin:0">${esc(o.baslik)}</h2>
-          <div class="bilgi">${tarihYaz(o.tarih)}${o.hafta? " · Hafta "+o.hafta:""} ·
-            ${o.grup_id? esc(grupAdi(o.grup_id)) : "Tüm ekipler"} · ${aktif.length} danışman</div>
-        </div>
-        <button class="btn ince gri" onclick="oturumKapat()">← Oturum listesi</button>
-      </div>
-
-      <div style="margin:14px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn ince" onclick="hepsiIsaretle('katildi')">Hepsi Katıldı</button>
-        <button class="btn ince gri" onclick="hepsiIsaretle('gelmedi')">Hepsi Gelmedi</button>
-      </div>
-      <div style="font-size:12px;color:var(--gray);margin-bottom:10px">
-        <b>Dahil Değildi:</b> O tarihte henüz sisteme girmemiş danışman için.
-        Katılım oranına ve istatistiklere katılmaz. Sonradan katılanlar otomatik işaretlenir.
-      </div>
-
-      <div id="yoklamaListe">
-        ${aktif.map(d=>{
-          const k = mevcut(d.id);
-          const secili = k ? k.durum : (sonradanMi(d) ? "kayitli_degil" : "");
-          return `<div class="gorev-satir" style="justify-content:space-between;align-items:center">
-            <div style="min-width:0">
-              <div style="font-weight:600;font-size:14px">${esc(d.ad)}</div>
-              <div class="bilgi">${esc(d.bolge||"—")}</div>
-            </div>
-            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end"
-                 data-uid="${d.id}">
-              ${YOKLAMA_DURUM.map(([kod,ad,renk])=>`
-                <button onclick="durumSec('${d.id}','${kod}')"
-                  data-durum="${kod}"
-                  style="border:1px solid ${secili===kod?renk:"var(--border)"};
-                    background:${secili===kod?renk:"#fff"};
-                    color:${secili===kod?"#fff":"var(--gray)"};
-                    padding:7px 11px;border-radius:8px;font-size:12.5px;
-                    font-weight:${secili===kod?"700":"400"};cursor:pointer">
-                  ${ad}</button>`).join("")}
-            </div>
-          </div>`;
-        }).join("") || "<p class='alt'>Bu ekipte aktif danışman yok.</p>"}
-      </div>
-
-      <button class="btn" style="margin-top:14px" onclick="yoklamaKaydet(this)">YOKLAMAYI KAYDET</button>
-      <div id="yoklamaMesaj" class="uyari"></div>
-    </div>`;
-
-  // seçimleri bellekte tut
-  window.__yoklama = {};
-  aktif.forEach(d=>{
-    const k = mevcut(d.id);
-    if(k) window.__yoklama[d.id] = k.durum;
-    else if(sonradanMi(d)) window.__yoklama[d.id] = "kayitli_degil";
-  });
-}
-
-function durumSec(uid, kod){
-  window.__yoklama = window.__yoklama || {};
-  window.__yoklama[uid] = kod;
-  const kap = document.querySelector(`[data-uid="${uid}"]`);
-  if(!kap) return;
-  kap.querySelectorAll("button").forEach(b=>{
-    const d = b.dataset.durum;
-    const renk = (YOKLAMA_DURUM.find(y=>y[0]===d)||[])[2] || "var(--border)";
-    const aktif = d === kod;
-    b.style.background = aktif? renk : "#fff";
-    b.style.color = aktif? "#fff" : "var(--gray)";
-    b.style.borderColor = aktif? renk : "var(--border)";
-    b.style.fontWeight = aktif? "700" : "400";
-  });
-}
-
-function hepsiIsaretle(kod){
-  document.querySelectorAll("#yoklamaListe [data-uid]").forEach(el=>
-    durumSec(el.dataset.uid, kod));
-}
-
-async function yoklamaKaydet(btn){
-  const m = $("#yoklamaMesaj");
-  const secimler = window.__yoklama || {};
-  const kayitlar = Object.entries(secimler).map(([uid,durum])=>({
-    oturum_id: ACIK_OTURUM, user_id: uid, durum }));
-  if(!kayitlar.length){ m.className="uyari hata";
-    m.textContent="Hiç işaretleme yapılmadı."; return; }
-
-  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
-    const {error} = await sb.from("yoklama")
-      .upsert(kayitlar, {onConflict:"oturum_id,user_id"});
-    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
-    m.className="uyari ok";
-    m.textContent = kayitlar.length + " danışman için yoklama kaydedildi.";
-    setTimeout(()=>m.className="uyari", 5000);
-  });
-}
-
-/* ---------- DANIŞMAN: Yoklamam ---------- */
-async function ekranYoklamam(){
-  $("#icerik").innerHTML = `<div class="yukleniyor">Yükleniyor…</div>`;
-  const [{data:kayitlar, error}, {data:oturumlar}] = await Promise.all([
-    sb.from("yoklama").select("*").eq("user_id",BEN.id),
-    sb.from("oturum").select("*").order("tarih",{ascending:false})
-  ]);
-  if(error){
-    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
-      <p class="alt">${esc(error.message)}</p></div>`; return;
-  }
-  const bul = oid => (oturumlar||[]).find(o=>o.id===oid);
-  const liste = (kayitlar||[]).map(k=>({...k, oturum:bul(k.oturum_id)}))
-    .filter(k=>k.oturum)
-    .sort((a,b)=> new Date(b.oturum.tarih) - new Date(a.oturum.tarih));
-
-  const sayilanlar = sayilan(liste);
-  const geldi = sayilanlar.filter(k=>k.durum==="katildi").length;
-  const oran = sayilanlar.length? geldi/sayilanlar.length*100 : 0;
-
-  $("#icerik").innerHTML = `
-    <div class="kutucuklar">
-      <div class="kutu"><span>Katılım Oranın</span>
-        <b style="color:${skorRenk(oran)}">${oran.toFixed(0)}%</b></div>
-      <div class="kutu"><span>Katıldığın</span><b>${geldi}</b></div>
-      <div class="kutu"><span>Sayılan Oturum</span><b>${sayilanlar.length}</b></div>
-    </div>
-    <div class="kart">
-      <h2>Yoklama Geçmişin</h2>
-      <p class="alt">Yoklamayı yöneticin alır. Hatalı görünen bir kayıt varsa mesaj at.</p>
-      ${liste.length? liste.map(k=>{
-        const d = YOKLAMA_DURUM.find(y=>y[0]===k.durum) || ["","—","var(--gray)"];
-        return `<div class="dan-satir" style="cursor:default">
-          <div style="min-width:0">
-            <div class="ad">${esc(k.oturum.baslik)}</div>
-            <div class="bilgi">${tarihYaz(k.oturum.tarih)}${
-              k.oturum.hafta? " · Hafta "+k.oturum.hafta:""}</div>
-          </div>
-          <div style="color:${d[2]};font-weight:700;font-size:13.5px">${d[1]}</div>
-        </div>`;
-      }).join("") : "<p class='alt'>Henüz yoklama kaydın yok.</p>"}
-    </div>`;
 }
 
 /* ==========================================================
@@ -1653,7 +1314,6 @@ async function kaynakSil(id){
    ========================================================== */
 async function ekipVerisi(){
   let sorgu = sb.from("profiles").select("*").eq("rol","danisman").eq("onay",true);
-  if(SECILI_GRUP) sorgu = sorgu.eq("grup_id", SECILI_GRUP);
   const {data:danlar} = await sorgu.order("ad");
   const {data:kayitlar} = await sb.from("haftalik").select("*");
   const {data:gorevler} = await sb.from("gorev").select("user_id,tamam");
@@ -1677,11 +1337,140 @@ async function ekipVerisi(){
   });
 }
 
-async function ekranEkip(){
-  $("#icerik").innerHTML = `<div class="yukleniyor">Ekip verileri yükleniyor…</div>`;
-  const {data:grp} = await sb.from("grup").select("*").order("id");
-  GRUPLAR_LISTE = grp || [];
+/* ---------------- PAZARTESİ RAPORU ----------------
+   Haftada bir açılır, 20 dakikada okunur. Grafik yok — sadece
+   "bu hafta kiminle konuşacağım" listesi.                        */
+const aramaTop = r => (r.fsbo_arama||0) + (r.sicak_arama||0);
 
+async function ekranPazartesi(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Rapor hazırlanıyor…</div>`;
+
+  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
+  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
+  await sayaclariYenile();
+
+  const ekip = (await ekipVerisi()).filter(e=>!e.pasif);
+  if(!ekip.length){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Henüz danışman yok</h2>
+      <p class="alt">Danışmanlar kayıt olup onaylandığında bu rapor dolacak.</p></div>`;
+    return;
+  }
+
+  // 1) Bu hafta veri girmeyenler
+  const girmeyenler = ekip.filter(e=>!e.buHaftaGirdi);
+
+  // 2) Düşenler — son iki dolu haftanın arama toplamı karşılaştırılır
+  const dusenler = [];
+  ekip.forEach(e=>{
+    if(e.kayitlar.length < 2) return;
+    const son = e.kayitlar[e.kayitlar.length-1];
+    const onceki = e.kayitlar[e.kayitlar.length-2];
+    const a = aramaTop(son), b = aramaTop(onceki);
+    if(a < b) dusenler.push({e, a, b, fark:b-a,
+      yuzde: b ? Math.round((b-a)/b*100) : 100});
+  });
+  dusenler.sort((x,y)=>y.yuzde-x.yuzde);
+
+  // 3) Üst üste iki hafta hareketsiz (veri yok ya da arama sıfır)
+  const hareketsiz = AKTIF_HAFTA >= 2 ? ekip.filter(e=>{
+    const olu = h => {
+      const r = e.kayitlar.find(x=>x.hafta===h);
+      return !r || aramaTop(r)===0;
+    };
+    return olu(AKTIF_HAFTA) && olu(AKTIF_HAFTA-1);
+  }) : [];
+
+  const satir = (e, sagMetin, sagRenk) => `
+    <div class="dan-satir" onclick="danAc('${e.profil.id}')" style="margin-bottom:6px">
+      <div>
+        <div class="ad">${esc(e.profil.ad)}</div>
+        <div class="bilgi">${e.sonHafta ? "son giriş: Hafta "+e.sonHafta
+                                            : "hiç veri girmemiş"}</div>
+      </div>
+      <div style="font-size:13px;color:${sagRenk};font-weight:600;text-align:right;white-space:nowrap">
+        ${sagMetin}</div>
+    </div>`;
+
+  const bolum = (baslik, aciklama, renk, fon, icerik, bosMetin) => `
+    <div class="kart" style="border-color:${renk};${icerik?`background:${fon}`:""}">
+      <h2 style="color:${renk}">${baslik}</h2>
+      <p class="alt">${aciklama}</p>
+      ${icerik || `<p style="font-size:14px;color:var(--green);font-weight:600;margin-top:4px">
+        ✓ ${bosMetin}</p>`}
+    </div>`;
+
+  const bekleyenKutu = (BEKLEYEN_SORU || 0) ? `
+    <div class="kart" style="border-color:var(--orange)">
+      <h2 style="color:var(--orange)">Cevap bekleyen ${BEKLEYEN_SORU} mesaj</h2>
+      <p class="alt">Danışman soru sordu, henüz cevaplanmadı.</p>
+      <button class="btn" onclick="sekmeAc('mesajlar')">Mesajlara git</button>
+    </div>` : "";
+
+  const temiz = !girmeyenler.length && !dusenler.length && !hareketsiz.length;
+
+  $("#icerik").innerHTML = `
+    <div class="kart" style="background:var(--navy);color:#fff;border-color:var(--navy)">
+      <div style="display:flex;justify-content:space-between;align-items:center;
+                  gap:12px;flex-wrap:wrap">
+        <div>
+          <h2 style="color:#fff;margin:0">Pazartesi Raporu — Hafta ${AKTIF_HAFTA}</h2>
+          <div style="font-size:13px;opacity:.85;margin-top:4px">
+            ${new Date().toLocaleDateString("tr-TR",
+              {weekday:"long",day:"numeric",month:"long",year:"numeric"})} ·
+            ${ekip.length} aktif danışman</div>
+        </div>
+        <button class="btn gri" style="white-space:nowrap;width:auto;padding:9px 20px"
+                onclick="window.print()">Yazdır</button>
+      </div>
+    </div>
+
+    ${temiz ? `
+    <div class="kart" style="border-color:var(--green);background:#F3FAF4">
+      <h2 style="color:var(--green)">✓ Bu hafta liste temiz</h2>
+      <p class="alt">Herkes verisini girdi, kimsede düşüş yok, hareketsiz kimse yok.
+      Seansta rakam tartışmasına değil konuya zaman ayır.</p>
+    </div>` : ""}
+
+    ${bolum(
+      `1 · Veri girmeyenler (${girmeyenler.length})`,
+      "Seanstan önce bunlara tek tek yaz. Veri girmeyen hafta, yapılmamış hafta sayılır.",
+      "var(--red)", "#FEF5F5",
+      girmeyenler.map(e=>satir(e,"bekliyor →","var(--red)")).join(""),
+      "Herkes bu haftanın verisini girdi.")}
+
+    ${bolum(
+      `2 · Düşenler (${dusenler.length})`,
+      "Geçen haftaya göre arama sayısı azalanlar. Rakam değil sebep sorulur.",
+      "var(--orange)", "#FFF8F0",
+      dusenler.map(d=>satir(d.e,
+        `${d.b} → ${d.a}<br><span style="font-weight:400;font-size:12px">%${d.yuzde} düşüş</span>`,
+        "var(--orange)")).join(""),
+      "Kimsede düşüş yok.")}
+
+    ${bolum(
+      `3 · İki hafta üst üste hareketsiz (${hareketsiz.length})`,
+      AKTIF_HAFTA < 2
+        ? "Program henüz 2. haftasına gelmedi; bu liste Hafta 2'den itibaren dolar."
+        : "Mentör kuralı: bu kişilerle seans dışında, bugün, tek tek konuşulur. Üçüncü hafta programdan çıkar ya da başa döner.",
+      "#6A1B9A", "#F8F3FB",
+      hareketsiz.map(e=>satir(e,"2 hafta sıfır","#6A1B9A")).join(""),
+      "Üst üste duran kimse yok.")}
+
+    ${bekleyenKutu}
+
+    <div class="kart" style="background:var(--light)">
+      <h2>Bu raporla ne yapılır</h2>
+      <div style="font-size:13.5px;line-height:1.9">
+        <b>1. liste</b> — seanstan önce mesaj at, veriyi girdir.<br>
+        <b>2. liste</b> — seansta ismini okuma, seans sonrası bire bir sor.<br>
+        <b>3. liste</b> — aynı gün telefon. Bu konuşma ertelenirse kişi kaybedilir.
+
+      </div>
+    </div>`;
+}
+
+async function ekranEkip(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Danışmanlar yükleniyor…</div>`;
   const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
   AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
 
@@ -1714,7 +1503,7 @@ async function ekranEkip(){
       <h2 style="color:var(--green)">✓ Hafta ${AKTIF_HAFTA} — herkes verisini girdi</h2>
     </div>`;
 
-  $("#icerik").innerHTML = grupSecHtml() + uyariHtml + `
+  $("#icerik").innerHTML = uyariHtml + `
     <div class="kutucuklar">
       <div class="kutu"><span>Aktif Danışman</span><b>${aktifler.length}</b></div>
       <div class="kutu"><span>Toplam Portföy</span><b>${ekip.reduce((s,e)=>s+e.portfoy,0)}</b></div>
@@ -1728,14 +1517,13 @@ async function ekranEkip(){
           (ekip.reduce((s,e)=>s+e.katilim,0)/ekip.length).toFixed(0)}%</b></div>
     </div>
     <div class="kart">
-      <h2>Ekip Listesi</h2>
+      <h2>Tüm Danışmanlar</h2>
       <p class="alt">Detay için bir danışmana dokun.</p>
       ${aktifler.sort((a,b)=>b.analiz.genel-a.analiz.genel).map(e=>`
         <div class="dan-satir" onclick="danAc('${e.profil.id}')">
           <div>
             <div class="ad">${esc(e.profil.ad)}</div>
-            <div class="bilgi">${esc(grupAdi(e.profil.grup_id))} ·
-              görev %${e.gorevYuzde.toFixed(0)} · katılım %${e.katilim.toFixed(0)} ·
+            <div class="bilgi">görev %${e.gorevYuzde.toFixed(0)} · katılım %${e.katilim.toFixed(0)} ·
               <span style="color:${e.buHaftaGirdi?"var(--green)":"var(--red)"};font-weight:600">
                 ${e.buHaftaGirdi ? "H"+AKTIF_HAFTA+" girildi"
                   : (e.sonHafta ? "son: H"+e.sonHafta : "veri yok")}</span></div>
@@ -1751,8 +1539,7 @@ async function ekranEkip(){
         <div class="dan-satir" onclick="danAc('${e.profil.id}')" style="opacity:.7">
           <div>
             <div class="ad">${esc(e.profil.ad)}</div>
-            <div class="bilgi">${esc(grupAdi(e.profil.grup_id))} ·
-              ${e.sonHafta? "son: H"+e.sonHafta : "veri yok"} · ${esc(e.profil.durum||"Pasif")}</div>
+            <div class="bilgi">${e.sonHafta? "son: H"+e.sonHafta : "veri yok"} · ${esc(e.profil.durum||"Pasif")}</div>
           </div>
           <div class="skor" style="color:var(--gray)">${e.analiz.genel.toFixed(0)}%</div>
         </div>`).join("")}
@@ -1760,6 +1547,200 @@ async function ekranEkip(){
 }
 
 function danAc(id){ SECILI_DAN = id; sekmeAc("detay"); }
+
+/* ==========================================================
+   BİREBİR GÖRÜŞMELER  —  yalnızca yönetim görür
+   ========================================================== */
+let BB_FILTRE = "";      // "" = tüm danışmanlar
+let BB_DUZENLE = null;   // düzenlenen kaydın id'si
+
+const gunFarki = d => Math.floor((new Date().setHours(0,0,0,0) -
+                                  new Date(d).setHours(0,0,0,0)) / 86400000);
+
+async function ekranBirebir(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Görüşmeler yükleniyor…</div>`;
+
+  const [{data:danlar}, {data:kayitlar, error}] = await Promise.all([
+    sb.from("profiles").select("id,ad,durum").eq("rol","danisman").eq("onay",true).order("ad"),
+    sb.from("birebir").select("*").order("tarih",{ascending:false}).order("id",{ascending:false})
+  ]);
+
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)}<br>
+      BIREBIR-GORUSME.sql çalıştırıldı mı?</p></div>`; return;
+  }
+
+  const aktif = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif");
+  if(!aktif.length){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Henüz danışman yok</h2>
+      <p class="alt">Danışman kaydolup onaylandığında görüşme yazabilirsin.</p></div>`; return;
+  }
+  const adBul = id => (danlar||[]).find(d=>d.id===id)?.ad || "—";
+  const liste = BB_FILTRE ? (kayitlar||[]).filter(k=>k.danisman_id===BB_FILTRE) : (kayitlar||[]);
+
+  // --- Uzun süredir görüşülmeyenler
+  const gecikenler = aktif.map(d=>{
+    const son = (kayitlar||[]).filter(k=>k.danisman_id===d.id)
+                  .map(k=>k.tarih).sort().pop();
+    return {d, son, gun: son ? gunFarki(son) : null};
+  }).filter(x => x.gun === null || x.gun >= 30)
+    .sort((a,b)=>(b.gun ?? 9999)-(a.gun ?? 9999));
+
+  // --- Yaklaşan randevular
+  const bugun = new Date().toISOString().slice(0,10);
+  const yaklasan = (kayitlar||[]).filter(k=>k.sonraki && k.sonraki >= bugun)
+    .sort((a,b)=>a.sonraki.localeCompare(b.sonraki)).slice(0,6);
+
+  const d = BB_DUZENLE ? (kayitlar||[]).find(k=>k.id===BB_DUZENLE) : null;
+
+  $("#icerik").innerHTML = `
+    <div class="kart" style="background:#FFFAEB;border-left:4px solid #BF8F00;padding:12px 16px">
+      <div style="font-size:12.5px;color:#7A5B00;line-height:1.6">
+        <b>Bu sekme yalnızca yönetimde görünür.</b> Danışmanlar bu notları göremez —
+        ne kendilerininkini, ne başkasınınkini.
+      </div>
+    </div>
+
+    ${gecikenler.length? `
+    <div class="kart" style="border-color:var(--orange);background:#FFF8F0">
+      <h2 style="color:var(--orange)">30 gündür görüşülmeyenler (${gecikenler.length})</h2>
+      <p class="alt">Birebir görüşme bir ayı geçtiyse kişi sessizce uzaklaşıyor demektir.</p>
+      ${gecikenler.map(x=>`
+        <div class="dan-satir" style="cursor:pointer;margin-bottom:6px"
+             onclick="bbYeni('${x.d.id}')">
+          <div>
+            <div class="ad">${esc(x.d.ad)}</div>
+            <div class="bilgi">${x.son ? "son görüşme: "+tarihYaz(x.son)+" ("+x.gun+" gün önce)"
+                                       : "hiç birebir görüşme yapılmamış"}</div>
+          </div>
+          <div style="font-size:13px;color:var(--orange);font-weight:600">görüşme yaz →</div>
+        </div>`).join("")}
+    </div>`:""}
+
+    ${yaklasan.length? `
+    <div class="kart" style="border-color:var(--green);background:#F3FAF4">
+      <h2 style="color:var(--green)">Planlanan görüşmeler</h2>
+      ${yaklasan.map(k=>`
+        <div class="dan-satir" style="cursor:default;margin-bottom:6px">
+          <div><div class="ad">${esc(adBul(k.danisman_id))}</div>
+            <div class="bilgi">${esc(k.konu||"konu yazılmamış")}</div></div>
+          <div style="font-size:13px;font-weight:600;color:var(--green);white-space:nowrap">
+            ${tarihYaz(k.sonraki)}</div>
+        </div>`).join("")}
+    </div>`:""}
+
+    <div class="kart" style="border-color:var(--navy)">
+      <h2>${d ? "Görüşmeyi Düzenle" : "Yeni Görüşme Kaydı"}</h2>
+      <div class="metrik-grid">
+        <div class="alan"><label>Danışman</label>
+          <select id="bbDan">
+            ${aktif.map(x=>`<option value="${x.id}" ${
+              (d?.danisman_id||BB_FILTRE)===x.id?"selected":""}>${esc(x.ad)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="alan"><label>Görüşme tarihi</label>
+          <input type="date" id="bbTarih" value="${d?.tarih || bugun}"></div>
+      </div>
+      <label>Konu başlığı</label>
+      <input type="text" id="bbKonu" value="${esc(d?.konu||"")}"
+             placeholder="Örn: FSBO aramalarında tıkanma">
+      <label>Görüşme notları</label>
+      <textarea id="bbNot" rows="5"
+        placeholder="Ne konuşuldu, ne söz verildi, neyi zor buluyor…">${esc(d?.notlar||"")}</textarea>
+      <label>Bir sonraki görüşme (isteğe bağlı)</label>
+      <input type="date" id="bbSonraki" value="${d?.sonraki||""}" style="max-width:220px">
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="btn" style="width:auto;padding:11px 24px"
+                onclick="bbKaydet(this)">${d ? "Güncelle" : "Kaydet"}</button>
+        ${d? `<button class="btn gri" style="width:auto;padding:11px 20px"
+                onclick="BB_DUZENLE=null;ekranBirebir()">Vazgeç</button>`:""}
+      </div>
+      <div id="bbMesaj" class="uyari"></div>
+    </div>
+
+    <div class="kart">
+      <h2>Görüşme Geçmişi</h2>
+      <label style="margin-top:0">Danışmana göre filtrele</label>
+      <select style="max-width:280px" onchange="BB_FILTRE=this.value;BB_DUZENLE=null;ekranBirebir()">
+        <option value="">Tüm danışmanlar (${(kayitlar||[]).length} kayıt)</option>
+        ${aktif.map(x=>{
+          const n = (kayitlar||[]).filter(k=>k.danisman_id===x.id).length;
+          return `<option value="${x.id}" ${BB_FILTRE===x.id?"selected":""}>${
+            esc(x.ad)} (${n})</option>`;
+        }).join("")}
+      </select>
+      <div style="margin-top:14px">
+        ${liste.length ? liste.map(k=>`
+          <div style="border:1px solid var(--border);border-left:4px solid var(--navy);
+               border-radius:10px;padding:13px 15px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;gap:10px;
+                        align-items:flex-start;flex-wrap:wrap">
+              <div style="min-width:0">
+                <div style="font-weight:700;font-size:14.5px">${esc(adBul(k.danisman_id))}</div>
+                <div style="font-size:12px;color:var(--gray);margin-top:2px">
+                  ${tarihYaz(k.tarih)}${k.konu? " · "+esc(k.konu):""}</div>
+              </div>
+              <div style="display:flex;gap:6px;white-space:nowrap">
+                ${duzenlerMi()? `<button class="btn ince gri"
+                   onclick="BB_DUZENLE=${k.id};ekranBirebir();window.scrollTo({top:0,behavior:'smooth'})"
+                   >Düzenle</button>`:""}
+                ${ustYonetimMi()? `<button class="btn ince" style="background:var(--red)"
+                   onclick="bbSil(${k.id})">Sil</button>`:""}
+              </div>
+            </div>
+            ${k.notlar? `<div style="margin-top:9px;font-size:13.5px;line-height:1.65;
+                 white-space:pre-wrap">${esc(k.notlar)}</div>`:""}
+            ${k.sonraki? `<div style="margin-top:9px;font-size:12.5px;color:var(--green);
+                 font-weight:600">Sonraki görüşme: ${tarihYaz(k.sonraki)}</div>`:""}
+          </div>`).join("")
+        : `<p class="alt">${BB_FILTRE ? "Bu danışmanla henüz görüşme kaydı yok."
+                                      : "Henüz görüşme kaydı yok."}</p>`}
+      </div>
+    </div>`;
+}
+
+function bbYeni(danismanId){
+  BB_DUZENLE = null; BB_FILTRE = danismanId;
+  ekranBirebir().then(()=>window.scrollTo({top:0, behavior:"smooth"}));
+}
+
+async function bbKaydet(btn){
+  const m = $("#bbMesaj");
+  const notlar = $("#bbNot").value.trim();
+  const tarih  = $("#bbTarih").value;
+  if(!tarih){ m.className="uyari hata"; m.textContent="Görüşme tarihi gerekli."; return; }
+  if(notlar.length < 3){ m.className="uyari hata";
+    m.textContent="Görüşme notu yaz — boş kayıt işe yaramaz."; return; }
+
+  const kayit = {
+    danisman_id: $("#bbDan").value,
+    tarih,
+    konu:    $("#bbKonu").value.trim() || null,
+    notlar,
+    sonraki: $("#bbSonraki").value || null,
+    olusturan: BEN.id
+  };
+
+  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    const {error} = BB_DUZENLE
+      ? await sb.from("birebir").update(kayit).eq("id", BB_DUZENLE)
+      : await sb.from("birebir").insert(kayit);
+    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
+    BB_DUZENLE = null;
+    m.className="uyari ok"; m.textContent="Görüşme kaydedildi.";
+    setTimeout(ekranBirebir, 700);
+  });
+}
+
+async function bbSil(id){
+  if(!confirm("Bu görüşme kaydı kalıcı olarak silinsin mi?")) return;
+  const {error} = await sb.from("birebir").delete().eq("id",id);
+  if(error){ const m=$("#bbMesaj"); m.className="uyari hata";
+             m.textContent="Silinemedi: "+error.message; return; }
+  if(BB_DUZENLE===id) BB_DUZENLE = null;
+  ekranBirebir();
+}
 
 async function ekranDetay(){
   const ekip = await ekipVerisi();
@@ -1891,8 +1872,17 @@ async function ekranDetay(){
       <textarea id="yMetin" rows="4" placeholder="Bu hafta için geri bildirimin…"></textarea>
       <button class="btn" onclick="yorumKaydet()">Yorumu Kaydet</button>
       <div id="yorumMesaj" class="uyari"></div>
-    </div>`:""}`;
+    </div>`:""}
 
+    <div class="kart">
+      <h2>Birebir Görüşmeler</h2>
+      <p class="alt">Bu danışmanla yapılan birebir görüşmeler. Danışman bunları görmez.</p>
+      <div id="danBirebir"><div class="yukleniyor">Yükleniyor…</div></div>
+      <button class="btn gri" style="width:auto;padding:10px 20px;margin-top:10px"
+              onclick="bbYeni('${e.profil.id}');sekmeAc('birebir')">Yeni görüşme yaz</button>
+    </div>`;
+
+  danBirebirYukle(e.profil.id);
   barCiz("cBar", Object.entries(e.analiz.detay).map(([k,v])=>[ETIKET[k],v[2]]), "%");
 
   const guclu=[],zayif=[];
@@ -1927,6 +1917,27 @@ async function ekranDetay(){
     danVeriYukle();
     danGorevYukle();
   }
+}
+
+// Danışman Detayı ekranındaki birebir görüşme geçmişi
+async function danBirebirYukle(danismanId){
+  const el = $("#danBirebir"); if(!el) return;
+  const {data, error} = await sb.from("birebir").select("*")
+    .eq("danisman_id", danismanId).order("tarih",{ascending:false}).order("id",{ascending:false});
+  if(error){ el.innerHTML = `<p class="alt">Yüklenemedi — BIREBIR-GORUSME.sql çalıştırıldı mı?</p>`; return; }
+  if(!data?.length){ el.innerHTML = `<p class="alt">Bu danışmanla henüz birebir görüşme yapılmamış.</p>`; return; }
+  const son = gunFarki(data[0].tarih);
+  el.innerHTML =
+    `<div style="font-size:12.5px;color:${son>=30?"var(--orange)":"var(--gray)"};
+         font-weight:600;margin-bottom:10px">
+       ${data.length} görüşme · son görüşme ${son===0?"bugün":son+" gün önce"}</div>` +
+    data.map(k=>`
+      <div style="border-left:3px solid var(--border);padding:4px 0 10px 12px;margin-bottom:8px">
+        <div style="font-size:12.5px;color:var(--gray);font-weight:600">
+          ${tarihYaz(k.tarih)}${k.konu? " · "+esc(k.konu):""}</div>
+        ${k.notlar? `<div style="margin-top:4px;font-size:13.5px;line-height:1.6;
+             white-space:pre-wrap">${esc(k.notlar)}</div>`:""}
+      </div>`).join("");
 }
 
 async function danVeriYukle(){
@@ -2005,14 +2016,9 @@ async function ekranKiyas(){
   $("#icerik").innerHTML = `<div class="yukleniyor">Hesaplanıyor…</div>`;
   const ekip = await ekipVerisi();
   if(!ekip.length){ $("#icerik").innerHTML=`<div class="kart"><h2>Danışman yok</h2></div>`; return; }
-  $("#icerik").innerHTML = grupSecHtml() + `
+  $("#icerik").innerHTML = `
     <div class="kart">
       <h2>Karşılaştırma</h2>
-      <label>Görünüm</label>
-      <select id="kMod" style="max-width:280px" onchange="ekranKiyas()">
-        <option value="kisi">Danışman bazında</option>
-        <option value="grup" ${KIYAS_MOD==="grup"?"selected":""}>Ekipler arası kıyas</option>
-      </select>
       <label>Ölçüt</label>
       <select id="olcut" style="max-width:280px">
         <option value="genel">Genel Başarı %</option>
@@ -2032,40 +2038,11 @@ async function ekranKiyas(){
     </div>`;
 
   const ciz = () => {
-    KIYAS_MOD = $("#kMod").value;
     const o=$("#olcut").value;
     const deger = e => o==="genel" ? e.analiz.genel
                   : o==="gorev" ? e.gorevYuzde
                   : e.kayitlar.reduce((s,x)=>s+(x[o.slice(2)]||0),0);
     const birim = (o==="genel"||o==="gorev") ? "%" : "";
-
-    if(KIYAS_MOD==="grup"){
-      const gruplar = {};
-      ekip.forEach(e=>{
-        const ad = grupAdi(e.profil.grup_id);
-        (gruplar[ad] = gruplar[ad] || []).push(e);
-      });
-      const satir = Object.entries(gruplar).map(([ad,uyeler])=>{
-        const ort = k => uyeler.reduce((s,u)=>s+k(u),0)/uyeler.length;
-        return {ad, kisi:uyeler.length,
-                deger: birim==="%" ? ort(deger) : uyeler.reduce((s,u)=>s+deger(u),0),
-                basari: ort(u=>u.analiz.genel), gorev: ort(u=>u.gorevYuzde),
-                katilim: ort(u=>u.katilim),
-                portfoy: uyeler.reduce((s,u)=>s+u.portfoy,0),
-                islem: uyeler.reduce((s,u)=>s+u.islem,0)};
-      }).sort((a,b)=>b.deger-a.deger);
-
-      barCiz("cKiyas", satir.map(g=>[`${g.ad} (${g.kisi})`, g.deger]), birim);
-      $("#kiyasTablo").innerHTML =
-        `<tr><th>#</th><th>Ekip</th><th>Kişi</th><th>Başarı</th><th>Görev</th>
-             <th>Katılım</th><th>Portföy</th><th>İşlem</th></tr>` +
-        satir.map((g,i)=>`<tr${i===0?' style="background:#FFF6E0"':''}>
-          <td><b>${i+1}</b></td><td>${esc(g.ad)}</td><td>${g.kisi}</td>
-          <td style="color:${skorRenk(g.basari)}"><b>${g.basari.toFixed(0)}%</b></td>
-          <td>${g.gorev.toFixed(0)}%</td><td>${g.katilim.toFixed(0)}%</td>
-          <td>${g.portfoy}</td><td>${g.islem}</td></tr>`).join("");
-      return;
-    }
 
     const sirali=[...ekip].sort((a,b)=>deger(b)-deger(a));
     barCiz("cKiyas", sirali.map(e=>[e.profil.ad, deger(e)]), birim);
@@ -2082,9 +2059,10 @@ async function ekranKiyas(){
 }
 
 async function ekranAyar(){
-  const {data:hepsi} = await sb.from("profiles").select("*").order("ad");
-  const danlar = (hepsi||[]).filter(d=>d.rol==="danisman");
-  const bekleyen = (hepsi||[]).filter(d=>!d.onay);
+  const {data:tumu} = await sb.from("profiles").select("*").order("ad");
+  const hepsi = tumu || [];
+  const danlar = hepsi.filter(d=>d.rol==="danisman");
+  const bekleyen = hepsi.filter(d=>!d.onay);
   $("#icerik").innerHTML = `
     ${bekleyen.length? `
     <div class="kart" style="border-color:var(--orange)">
@@ -2094,7 +2072,7 @@ async function ekranAyar(){
         <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px">
           <div style="font-weight:600;font-size:14px">${esc(d.ad)}</div>
           <div style="font-size:12px;color:var(--gray);margin:3px 0 8px">
-            ${esc(grupAdi(d.grup_id))} · ${esc(d.bolge||"—")}</div>
+            ${esc(d.bolge||"—")}</div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <select id="or_${d.id}" style="max-width:200px;flex:1">
               ${Object.keys(ROLLER).map(r=>
@@ -2110,6 +2088,7 @@ async function ekranAyar(){
       <div id="onayMesaj" class="uyari"></div>
     </div>`:""}
 
+    ${ustYonetimMi()? `
     <div class="kart">
       <h2>Program Haftası</h2>
       <p class="alt">Şu an programın kaçıncı haftasındayız? "Bu hafta veri girmeyenler"
@@ -2122,35 +2101,26 @@ async function ekranAyar(){
     </div>
 
     <div class="kart">
-      <h2>Ekipler / Dönemler</h2>
-      <p class="alt">Yeni ekip aldığında burada yeni bir dönem aç, kodunu onlara ver.</p>
-      ${GRUPLAR_LISTE.map(g=>`
-        <div class="dan-satir" style="cursor:default">
-          <div><div class="ad">${esc(g.ad)}</div>
-            <div class="bilgi">Kod: <b>${esc(g.kod)}</b> ·
-              ${(hepsi||[]).filter(d=>d.grup_id===g.id).length} kişi</div></div>
-          <select style="max-width:130px" onchange="grupDurum(${g.id},this.value)">
-            <option value="aktif" ${g.durum==="aktif"?"selected":""}>Kayıt açık</option>
-            <option value="tamamlandi" ${g.durum!=="aktif"?"selected":""}>Kapalı</option>
-          </select>
-        </div>`).join("")}
-      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
-        <div class="metrik-grid">
-          <div class="alan"><label>Yeni ekip adı</label>
-            <input type="text" id="gAd" placeholder="2. Dönem — Mart 2027"></div>
-          <div class="alan"><label>Kayıt kodu</label>
-            <input type="text" id="gKod" placeholder="EKSEN2027"></div>
+      <h2>Kayıt Kodu</h2>
+      <p class="alt">Siteye kaydolmak isteyen herkes bu kodu girer. Tek kod, tek sistem —
+      bugün katılan da altı ay sonra katılan da aynı listede yer alır.
+      Kodu değiştirirsen eski kodla yeni kayıt açılamaz; mevcut üyeler etkilenmez.</p>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px">
+          <label style="margin-top:0">Kod</label>
+          <input type="text" id="yeniKod" value="${esc(OFIS_KODU)}" placeholder="EKSEN2027">
         </div>
-        <button class="btn" onclick="grupEkle()">Ekip Oluştur</button>
-        <div id="grupMesaj" class="uyari"></div>
+        <button class="btn" style="width:auto;padding:11px 22px"
+                onclick="kayitKoduKaydet(this)">Kaydet</button>
       </div>
-    </div>
+      <div id="kodMesaj" class="uyari"></div>
+    </div>`:""}
 
     <div class="kart">
       <h2>Kullanıcı Rolleri</h2>
       <p class="alt">Siteye kayıt olan herkes önce "Danışman" gelir.
       Ofis yöneticisi veya mentör olacak kişiyi buradan yükselt.</p>
-      ${(hepsi||[]).map(d=>`
+      ${hepsi.map(d=>`
         <div class="dan-satir" style="cursor:default;align-items:flex-start;gap:10px">
           <div style="flex:1;min-width:0">
             <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px">
@@ -2165,22 +2135,24 @@ async function ekranAyar(){
                 <button class="btn ince" style="background:var(--red)"
                    onclick="uyeSil('${d.id}','${esc(d.ad).replace(/'/g,"")}',this)">Üyeyi Sil</button>`}
             </div>
-            <div class="bilgi">${d.onay?"":"⏳ onay bekliyor · "}${esc(grupAdi(d.grup_id))} ·
-              ${esc(d.bolge||"—")}${(d.durum&&d.durum!=="Aktif")?
+            <div class="bilgi">${d.onay?"":"⏳ onay bekliyor · "}${esc(d.bolge||"—")}${(d.durum&&d.durum!=="Aktif")?
                 ` · <b style="color:var(--gray)">${esc(d.durum)}</b>`:""}</div>
           </div>
+          ${ustYonetimMi()? `
           <select style="max-width:160px" ${d.id===BEN.id?"disabled":""}
                   onchange="rolDegistir('${d.id}',this.value)">
             ${Object.keys(ROLLER).map(r=>
               `<option value="${r}" ${d.rol===r?"selected":""}>${ROLLER[r].ad}</option>`).join("")}
-          </select>
+          </select>` : `
+          <div style="font-size:12.5px;color:var(--gray);white-space:nowrap">
+            ${esc(ROLLER[d.rol]?.ad || d.rol)}</div>`}
         </div>`).join("")}
       <div id="rolMesaj" class="uyari"></div>
       <div style="margin-top:12px;background:var(--light);padding:12px;border-radius:8px;font-size:12.5px;line-height:1.8">
         <b>Danışman</b> — sadece kendi verisini görür ve girer<br>
-        <b>Recruiter</b> — tüm ekibi görür, düzenleyemez<br>
+        <b>Recruiter</b> — tüm danışmanları görür, düzenleyemez<br>
         <b>Gelişim Koçu</b> — görür + veri/görev düzenler, yorum yazar<br>
-        <b>Ofis Müdürü</b> — hepsi + hedef bantları ve roller<br>
+        <b>Mentör / Ofis Müdürü</b> — hepsi + hedef bantları, onay ve roller<br>
         <b>Broker</b> — tam yetki
       </div>
       <div style="margin-top:10px;background:#FFFAEB;border-left:4px solid #BF8F00;
@@ -2208,6 +2180,7 @@ async function ekranAyar(){
       <div id="bantMesaj" class="uyari"></div>
     </div>
 
+    ${ustYonetimMi()? `
     <div class="kart">
       <h2>Aylık Hedefler (Ana Metrik Tablosu)</h2>
       <p class="alt">Kitaptaki rakamlar hazır geldi. Ofis temposuna göre değiştirebilirsin.</p>
@@ -2225,19 +2198,17 @@ async function ekranAyar(){
       </div>
       <button class="btn" onclick="hedefKaydet()">Hedefleri Kaydet</button>
       <div id="hedefMesaj" class="uyari"></div>
-    </div>
+    </div>`:""}
 
     <div class="kart">
       <h2>Danışmanları Davet Et</h2>
       <p class="alt">Danışmanlarına şu bilgileri gönder:</p>
       <div style="background:var(--light);padding:14px;border-radius:8px;font-size:14px;line-height:1.7">
         <b>Site adresi:</b> ${location.origin}${location.pathname}<br>
-        <b>Ofis kodu:</b> <span id="ofisKodu">…</span><br><br>
+        <b>Kayıt kodu:</b> ${esc(OFIS_KODU) || "—"}<br><br>
         Kayıt ol → her hafta sonu rakamlarını gir.
       </div>
     </div>`;
-  const {data} = await sb.from("ayar").select("deger").eq("anahtar","ofis_kodu").single();
-  if($("#ofisKodu")) $("#ofisKodu").textContent = data?.deger || "—";
 }
 
 async function onayla(id, kabul){
@@ -2279,27 +2250,19 @@ async function aktifHaftaKaydet(deger){
          setTimeout(()=>m.className="uyari",5000); }
 }
 
-async function grupEkle(){
-  const m=$("#grupMesaj");
-  const ad=$("#gAd").value.trim(), kod=$("#gKod").value.trim().toUpperCase();
-  if(!ad||!kod){ m.className="uyari hata"; m.textContent="Ad ve kod gerekli."; return; }
-  const {error} = await sb.from("grup").insert({ad, kod});
-  if(error){ m.className="uyari hata"; m.textContent="Eklenemedi: "+error.message; return; }
-  const {data:grp} = await sb.from("grup").select("*").order("id");
-  GRUPLAR_LISTE = grp || [];
-
-  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
-  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
-  ekranAyar();
-}
-
-async function grupDurum(id, durum){
-  await sb.from("grup").update({durum}).eq("id",id);
-  const {data:grp} = await sb.from("grup").select("*").order("id");
-  GRUPLAR_LISTE = grp || [];
-
-  const {data:ah} = await sb.from("ayar").select("deger").eq("anahtar","aktif_hafta").maybeSingle();
-  AKTIF_HAFTA = Math.min(Math.max(parseInt(ah?.deger || "1", 10) || 1, 1), 10);
+async function kayitKoduKaydet(btn){
+  const m = $("#kodMesaj");
+  const kod = ($("#yeniKod")?.value || "").trim().toUpperCase();
+  if(kod.length < 4){ m.className="uyari hata";
+    m.textContent="Kod en az 4 karakter olmalı."; return; }
+  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    const {error} = await sb.from("ayar")
+      .upsert({anahtar:"ofis_kodu", deger:kod},{onConflict:"anahtar"});
+    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
+    OFIS_KODU = kod;
+    m.className="uyari ok"; m.textContent="Kayıt kodu güncellendi: "+kod;
+    setTimeout(()=>m.className="uyari", 5000);
+  });
 }
 
 async function adGuncelle(id, btn){
@@ -2336,8 +2299,6 @@ async function uyeSil(id, ad, btn){
       m.textContent="Silinemedi: "+error.message+
         "  (Veritabanı fonksiyonu kurulu mu kontrol et.)"; return; }
     m.className="uyari ok"; m.textContent=ad+" sistemden silindi.";
-    const {data:grp} = await sb.from("grup").select("*").order("id");
-    GRUPLAR_LISTE = grp || [];
     setTimeout(()=>{m.className="uyari"; ekranAyar();}, 1200);
   });
 }
