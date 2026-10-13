@@ -458,7 +458,7 @@ async function baslat(){
 function sekmeleriKur(ac){
   let liste;
   if(yonetimMi()){
-    liste = [["pazartesi","Pazartesi Raporu"],
+    liste = [["pazartesi","Bu Hafta"],
              ["ekip","Danışmanlar"],["detay","Danışman Detayı"],
              ["birebir","Birebir Görüşmeler"],["kiyas","Karşılaştırma"],
              ["mesajlar", "Mesajlar" + (BEKLEYEN_SORU? ` (${BEKLEYEN_SORU})` : "")],
@@ -1316,7 +1316,7 @@ async function ekipVerisi(){
   });
 }
 
-/* ---------------- PAZARTESİ RAPORU ----------------
+/* ---------------- BU HAFTA ----------------
    Haftada bir açılır, 20 dakikada okunur. Grafik yok — sadece
    "bu hafta kiminle konuşacağım" listesi.                        */
 const aramaTop = r => (r.fsbo_arama||0) + (r.sicak_arama||0);
@@ -1392,7 +1392,7 @@ async function ekranPazartesi(){
       <div style="display:flex;justify-content:space-between;align-items:center;
                   gap:12px;flex-wrap:wrap">
         <div>
-          <h2 style="color:#fff;margin:0">Pazartesi Raporu — Hafta ${AKTIF_HAFTA}</h2>
+          <h2 style="color:#fff;margin:0">Bu Hafta — Hafta ${AKTIF_HAFTA}</h2>
           <div style="font-size:13px;opacity:.85;margin-top:4px">
             ${new Date().toLocaleDateString("tr-TR",
               {weekday:"long",day:"numeric",month:"long",year:"numeric"})} ·
@@ -1438,7 +1438,7 @@ async function ekranPazartesi(){
     ${bekleyenKutu}
 
     <div class="kart" style="background:var(--light)">
-      <h2>Bu raporla ne yapılır</h2>
+      <h2>Bu listelerle ne yapılır</h2>
       <div style="font-size:13.5px;line-height:1.9">
         <b>1. liste</b> — seanstan önce mesaj at, veriyi girdir.<br>
         <b>2. liste</b> — seansta ismini okuma, seans sonrası bire bir sor.<br>
