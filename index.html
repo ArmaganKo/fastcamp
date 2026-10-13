@@ -177,14 +177,13 @@ font-size:13px;margin-top:12px}
         <option value="broker">Broker</option>
         <option value="mentor">Mentör</option>
       </select>
-      <div style="font-size:11.5px;color:var(--gray);margin:-6px 0 8px">
+      <div style="font-size:11.5px;color:var(--gray);margin:6px 0 0">
         Seçimin yöneticinin onayına sunulur.</div>
 
       <label id="kBolgeEtiket">Uzmanlık Bölgesi</label>
       <input type="text" id="kBolge" placeholder="Üsküdar">
-      <label>Kayıt Kodu</label>
-      <input type="text" id="kKod" placeholder="Mentörünüzden alın" oninput="grupKontrol()">
-      <div id="grupBilgi" style="font-size:12px;color:var(--gray);margin-top:-6px;margin-bottom:8px"></div>
+      <div style="font-size:11.5px;color:var(--gray);margin:10px 0 2px;line-height:1.5">
+        Kaydın yönetici onayından sonra aktifleşir.</div>
       <button class="btn" onclick="kayitOl()">Kayıt Ol</button>
       <div class="link">Hesabın var mı? <a onclick="ekranDegis('giris')">Giriş yap</a></div>
     </div>
@@ -297,7 +296,6 @@ let HEDEF = {};      // hedefler
 let AKTIF_SEKME = "";
 let SECILI_DAN = null;
 let AKTIF_HAFTA = 1;      // programın kaçıncı haftası
-let OFIS_KODU = "";      // tek kayıt kodu
 let BEKLEYEN_SORU = 0;   // yönetim: cevap bekleyen soru sayısı
 let YENI_CEVAP = 0;      // danışman: okunmamış cevap sayısı
 
@@ -342,16 +340,9 @@ async function girisYap(){
 async function kayitOl(){
   const ad=$("#kAd").value.trim(), email=$("#kEposta").value.trim(),
         password=$("#kSifre").value, bolge=$("#kBolge").value.trim(),
-        kod=$("#kKod").value.trim(), rol=$("#kRol").value;
+        rol=$("#kRol").value;
   if(!ad||!email||!password) return mesaj("Ad, e-posta ve şifre zorunlu.","hata");
   if(password.length<6) return mesaj("Şifre en az 6 karakter olmalı.","hata");
-
-  if(!kod) return mesaj("Kayıt kodu gerekli. Mentörünüzden alın.","hata");
-  const {data:ayar, error:gErr} = await sb.from("ayar")
-    .select("deger").eq("anahtar","ofis_kodu").maybeSingle();
-  if(gErr) return mesaj("Kod doğrulanamadı. Yöneticinize bildirin.","hata");
-  if(!ayar?.deger || kod.toUpperCase() !== String(ayar.deger).toUpperCase())
-    return mesaj("Kayıt kodu hatalı. Mentörünüzden alın.","hata");
 
   const {error} = await sb.auth.signUp({email, password,
     options:{data:{ad, bolge, rol}}});
@@ -364,17 +355,6 @@ async function kayitOl(){
 function rolAlanGuncelle(){
   const dan = $("#kRol").value === "danisman";
   $("#kBolgeEtiket").textContent = dan ? "Uzmanlık Bölgesi" : "Bölge / Birim (isteğe bağlı)";
-}
-
-async function grupKontrol(){
-  const kod = $("#kKod").value.trim();
-  const el = $("#grupBilgi");
-  if(!kod){ el.textContent=""; return; }
-  const {data:ayar} = await sb.from("ayar")
-    .select("deger").eq("anahtar","ofis_kodu").maybeSingle();
-  if(ayar?.deger && kod.toUpperCase() === String(ayar.deger).toUpperCase()){
-    el.textContent = "✓ Kod doğru"; el.style.color = "var(--green)";
-  } else { el.textContent = "Kod hatalı"; el.style.color = "var(--red)"; }
 }
 
 async function sifreSifirla(){
@@ -465,7 +445,6 @@ async function baslat(){
   $("#uygulama").classList.remove("hide");
   const {data:ayarlar} = await sb.from("ayar").select("anahtar,deger");
   const ayarBul = k => (ayarlar||[]).find(a=>a.anahtar===k)?.deger;
-  OFIS_KODU = ayarBul("ofis_kodu") || "";
   AKTIF_HAFTA = Math.min(Math.max(parseInt(ayarBul("aktif_hafta") || "1", 10) || 1, 1), 10);
 
   await sayaclariYenile();
@@ -2099,22 +2078,7 @@ async function ekranAyar(){
       </select>
       <div id="haftaAyarMesaj" class="uyari"></div>
     </div>
-
-    <div class="kart">
-      <h2>Kayıt Kodu</h2>
-      <p class="alt">Siteye kaydolmak isteyen herkes bu kodu girer. Tek kod, tek sistem —
-      bugün katılan da altı ay sonra katılan da aynı listede yer alır.
-      Kodu değiştirirsen eski kodla yeni kayıt açılamaz; mevcut üyeler etkilenmez.</p>
-      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-        <div style="flex:1;min-width:180px">
-          <label style="margin-top:0">Kod</label>
-          <input type="text" id="yeniKod" value="${esc(OFIS_KODU)}" placeholder="EKSEN2027">
-        </div>
-        <button class="btn" style="width:auto;padding:11px 22px"
-                onclick="kayitKoduKaydet(this)">Kaydet</button>
-      </div>
-      <div id="kodMesaj" class="uyari"></div>
-    </div>`:""}
+`:""}
 
     <div class="kart">
       <h2>Kullanıcı Rolleri</h2>
@@ -2202,11 +2166,11 @@ async function ekranAyar(){
 
     <div class="kart">
       <h2>Danışmanları Davet Et</h2>
-      <p class="alt">Danışmanlarına şu bilgileri gönder:</p>
+      <p class="alt">Danışmanlarına bu adresi gönder. Kayıt olduklarında
+      "Onay Bekleyenler" listesine düşerler; sen onaylamadan içeri giremezler.</p>
       <div style="background:var(--light);padding:14px;border-radius:8px;font-size:14px;line-height:1.7">
-        <b>Site adresi:</b> ${location.origin}${location.pathname}<br>
-        <b>Kayıt kodu:</b> ${esc(OFIS_KODU) || "—"}<br><br>
-        Kayıt ol → her hafta sonu rakamlarını gir.
+        <b>Site adresi:</b> ${location.origin}${location.pathname}<br><br>
+        Kayıt ol → onay bekle → her hafta sonu rakamlarını gir.
       </div>
     </div>`;
 }
@@ -2248,21 +2212,6 @@ async function aktifHaftaKaydet(deger){
   else { AKTIF_HAFTA = +deger; m.className="uyari ok";
          m.textContent="Program haftası: Hafta "+deger;
          setTimeout(()=>m.className="uyari",5000); }
-}
-
-async function kayitKoduKaydet(btn){
-  const m = $("#kodMesaj");
-  const kod = ($("#yeniKod")?.value || "").trim().toUpperCase();
-  if(kod.length < 4){ m.className="uyari hata";
-    m.textContent="Kod en az 4 karakter olmalı."; return; }
-  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
-    const {error} = await sb.from("ayar")
-      .upsert({anahtar:"ofis_kodu", deger:kod},{onConflict:"anahtar"});
-    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
-    OFIS_KODU = kod;
-    m.className="uyari ok"; m.textContent="Kayıt kodu güncellendi: "+kod;
-    setTimeout(()=>m.className="uyari", 5000);
-  });
 }
 
 async function adGuncelle(id, btn){
