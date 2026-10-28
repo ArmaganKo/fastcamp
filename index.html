@@ -461,12 +461,14 @@ function sekmeleriKur(ac){
     liste = [["pazartesi","Bu Hafta"],
              ["ekip","Danışmanlar"],["detay","Danışman Detayı"],
              ["birebir","Birebir Görüşmeler"],["kiyas","Karşılaştırma"],
+             ["egitimler","Yoklama"],
              ["mesajlar", "Mesajlar" + (BEKLEYEN_SORU? ` (${BEKLEYEN_SORU})` : "")],
              ["kaynaklar","Eğitim Merkezi"]];
     if(ustYonetimMi()) liste.push(["ayar","Yönetim"]);
   } else {
     liste = [["girisim","Haftalık Girişim"],["benim","Performansım"],
              ["gorevlerim","Görevlerim"],
+             ["egitimlerim","Eğitimlerim"],
              ["mesaj","Mesajlar" + (YENI_CEVAP? ` (${YENI_CEVAP})` : "")],
              ["kaynaklar","Eğitim Merkezi"]];
   }
@@ -496,6 +498,7 @@ function sekmeAc(k){
   ({girisim:ekranGirisim, benim:ekranBenim, gorevlerim:ekranGorevlerim,
     mesaj:ekranMesaj, mesajlar:ekranMesajlar, kaynaklar:ekranKaynaklar,
     pazartesi:ekranPazartesi, birebir:ekranBirebir,
+    egitimler:ekranEgitimler, egitimlerim:ekranEgitimlerim,
     ekip:ekranEkip, detay:ekranDetay, kiyas:ekranKiyas, ayar:ekranAyar})[k]();
 }
 
@@ -1096,6 +1099,331 @@ async function yeniMesajGonder(btn){
 }
 
 /* ==========================================================
+   EĞİTİMLER VE YOKLAMA
+   ========================================================== */
+let ACIK_EGITIM = null;   // yoklama alınan eğitimin id'si
+let EG_DUZENLE  = null;   // başlığı düzenlenen eğitimin id'si
+
+async function ekranEgitimler(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Eğitimler yükleniyor…</div>`;
+
+  const [{data:egitimler, error}, {data:katilimlar}, {data:kaynaklar}, {data:baglar}] =
+  await Promise.all([
+    sb.from("egitim").select("*").order("tarih",{ascending:false}).order("id",{ascending:false}),
+    sb.from("katilim").select("egitim_id,user_id"),
+    sb.from("kaynak").select("id,baslik,tur,url").eq("aktif",true),
+    sb.from("egitim_kaynak").select("egitim_id,kaynak_id")
+  ]);
+
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)}<br>
+      EGITIM-YOKLAMA.sql çalıştırıldı mı?</p></div>`; return;
+  }
+
+  if(ACIK_EGITIM) return yoklamaEkrani(ACIK_EGITIM, egitimler||[], katilimlar||[]);
+
+  const kaynakSirali = (kaynaklar||[]).sort((a,b)=>trSirala(a.baslik,b.baslik));
+  const kaynakAdi = id => (kaynaklar||[]).find(k=>k.id===id)?.baslik;
+  const sayi = eid => (katilimlar||[]).filter(k=>k.egitim_id===eid).length;
+  // Eğitime bağlı dokümanlar (eski tek-doküman alanı da hesaba katılır)
+  const dokumanlar = eid => {
+    const idler = new Set((baglar||[]).filter(b=>b.egitim_id===eid).map(b=>b.kaynak_id));
+    const eg = (egitimler||[]).find(e=>e.id===eid);
+    if(eg?.kaynak_id) idler.add(eg.kaynak_id);
+    return [...idler].map(id=>(kaynaklar||[]).find(k=>k.id===id))
+             .filter(Boolean).sort((a,b)=>trSirala(a.baslik,b.baslik));
+  };
+  const d = EG_DUZENLE ? (egitimler||[]).find(e=>e.id===EG_DUZENLE) : null;
+  const seciliDok = d ? new Set(dokumanlar(d.id).map(k=>k.id)) : new Set();
+
+  $("#icerik").innerHTML = `
+    <div class="kart" style="border-color:var(--navy)">
+      <h2>${d ? "Eğitimi Düzenle" : "Yeni Eğitim Oluştur"}</h2>
+      <p class="alt">Önce eğitimi aç, sonra listeden gelenleri işaretle.</p>
+      <label>Eğitim konusu</label>
+      <input type="text" id="egBaslik" value="${esc(d?.baslik||"")}"
+             placeholder="Örn: FSBO İtiraz Yönetimi">
+      <label>Tarih</label>
+      <input type="date" id="egTarih" style="max-width:220px"
+             value="${d?.tarih || new Date().toISOString().slice(0,10)}">
+      <label>İlgili dokümanlar (isteğe bağlı, birden fazla seçilebilir)</label>
+      ${kaynakSirali.length ? `
+      <div style="border:1px solid var(--border);border-radius:9px;padding:6px;
+           max-height:230px;overflow-y:auto;background:#fff">
+        ${kaynakSirali.map(k=>`
+          <label style="display:flex;align-items:center;gap:9px;padding:8px 9px;
+                 border-radius:7px;cursor:pointer;font-size:13.5px">
+            <input type="checkbox" class="dokBox" value="${k.id}"
+                   ${seciliDok.has(k.id)?"checked":""}
+                   style="width:17px;height:17px;flex:none;cursor:pointer">
+            <span>${turNormalize(k.tur)==="video"?"🎬":turNormalize(k.tur)==="sozlesme"?"📋":"📄"}
+              ${esc(k.baslik)}</span>
+          </label>`).join("")}
+      </div>` : ""}
+      <label>Kısa açıklama (isteğe bağlı)</label>
+      <textarea id="egAciklama" rows="2"
+        placeholder="Eğitimde ne işlendi, katılanlar neyi hatırlasın…">${esc(d?.aciklama||"")}</textarea>
+      <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+        <button class="btn" style="width:auto;padding:11px 24px"
+                onclick="egitimKaydet(this)">${d ? "Güncelle" : "Eğitimi Oluştur"}</button>
+        ${d? `<button class="btn gri" style="width:auto;padding:11px 20px"
+                onclick="EG_DUZENLE=null;ekranEgitimler()">Vazgeç</button>`:""}
+      </div>
+      <div id="egMesaj" class="uyari"></div>
+      ${!kaynakSirali.length? `<div style="margin-top:12px;font-size:12.5px;color:var(--gray)">
+        Doküman listesi boş — önce Eğitim Merkezi sekmesinden dosya yükle.</div>`:""}
+    </div>
+
+    <div class="kart">
+      <h2>Eğitimler</h2>
+      ${(egitimler||[]).length ? (egitimler||[]).map(e=>`
+        <div style="border:1px solid var(--border);border-left:4px solid var(--navy);
+             border-radius:10px;padding:13px 15px;margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;gap:10px;
+                      align-items:flex-start;flex-wrap:wrap">
+            <div style="min-width:0;flex:1 1 240px">
+              <div style="font-weight:700;font-size:14.5px">${esc(e.baslik)}</div>
+              <div style="font-size:12px;color:var(--gray);margin-top:3px">
+                ${tarihYaz(e.tarih)} · <b style="color:var(--navy)">${sayi(e.id)} katılımcı</b></div>
+              ${dokumanlar(e.id).length? `
+                <div style="font-size:12px;color:var(--gray);margin-top:4px">
+                  📎 ${dokumanlar(e.id).map(k=>esc(k.baslik)).join(" · ")}</div>`:""}
+              ${e.aciklama? `<div style="margin-top:7px;font-size:13px;line-height:1.55;
+                   white-space:pre-wrap;color:#3A4654">${esc(e.aciklama)}</div>`:""}
+            </div>
+            <div style="display:flex;gap:6px;flex:0 0 auto;white-space:nowrap">
+              <button class="btn ince" onclick="ACIK_EGITIM=${e.id};ekranEgitimler()">Yoklama Al</button>
+              ${duzenlerMi()? `<button class="btn ince gri"
+                 onclick="EG_DUZENLE=${e.id};ekranEgitimler();window.scrollTo({top:0,behavior:'smooth'})"
+                 >Düzenle</button>`:""}
+              ${ustYonetimMi()? `<button class="btn ince" style="background:var(--red)"
+                 onclick="egitimSil(${e.id},'${esc(e.baslik).replace(/'/g,"")}')">Sil</button>`:""}
+            </div>
+          </div>
+        </div>`).join("")
+      : `<p class="alt">Henüz eğitim oluşturmadın.</p>`}
+    </div>`;
+}
+
+async function yoklamaEkrani(eid, egitimler, katilimlar){
+  const e = egitimler.find(x=>x.id===eid);
+  if(!e){ ACIK_EGITIM = null; return ekranEgitimler(); }
+
+  const {data:danlar} = await sb.from("profiles")
+    .select("id,ad,bolge,durum").eq("rol","danisman").eq("onay",true).order("ad");
+  const aktif = (danlar||[]).filter(d=>(d.durum||"Aktif")==="Aktif")
+                  .sort((a,b)=>trSirala(a.ad,b.ad));
+  const geldi = new Set(katilimlar.filter(k=>k.egitim_id===eid).map(k=>k.user_id));
+
+  $("#icerik").innerHTML = `
+    <div class="kart" style="background:var(--navy);color:#fff;border-color:var(--navy)">
+      <div style="display:flex;justify-content:space-between;gap:12px;
+                  align-items:center;flex-wrap:wrap">
+        <div>
+          <h2 style="color:#fff;margin:0">${esc(e.baslik)}</h2>
+          <div style="font-size:13px;opacity:.85;margin-top:4px">${tarihYaz(e.tarih)}</div>
+        </div>
+        <button class="btn gri" style="width:auto;padding:9px 20px;white-space:nowrap"
+                onclick="ACIK_EGITIM=null;ekranEgitimler()">← Geri</button>
+      </div>
+    </div>
+
+    <div class="kart">
+      <h2>Gelenleri İşaretle</h2>
+      <p class="alt">Sadece gelenleri işaretle. İşaretlemediklerin listede yer almaz.</p>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+        <button class="btn ince gri" onclick="yoklamaHepsi(true)">Hepsini işaretle</button>
+        <button class="btn ince gri" onclick="yoklamaHepsi(false)">Hepsini kaldır</button>
+        <div id="yoklamaSayac" style="align-self:center;font-size:13px;
+             font-weight:600;color:var(--navy)"></div>
+      </div>
+      ${aktif.length ? aktif.map(d=>`
+        <label style="display:flex;align-items:center;gap:10px;padding:11px 12px;
+               border:1px solid var(--border);border-radius:9px;margin-bottom:7px;
+               cursor:pointer;font-size:14px">
+          <input type="checkbox" class="ykBox" data-uid="${d.id}"
+                 ${geldi.has(d.id)?"checked":""}
+                 onchange="yoklamaSayacYenile()"
+                 style="width:19px;height:19px;flex:none;cursor:pointer">
+          <span style="flex:1;min-width:0">
+            <b>${esc(d.ad)}</b>
+            <span style="color:var(--gray);font-size:12px"> · ${esc(d.bolge||"—")}</span>
+          </span>
+        </label>`).join("")
+      : `<p class="alt">Aktif danışman yok.</p>`}
+      <button class="btn" style="margin-top:14px"
+              onclick="yoklamaKaydet(${eid}, this)">Yoklamayı Kaydet</button>
+      <div id="ykMesaj" class="uyari"></div>
+    </div>`;
+  yoklamaSayacYenile();
+}
+
+function yoklamaSayacYenile(){
+  const kutular = [...document.querySelectorAll(".ykBox")];
+  const el = $("#yoklamaSayac"); if(!el) return;
+  el.textContent = `${kutular.filter(k=>k.checked).length} / ${kutular.length} katıldı`;
+}
+
+function yoklamaHepsi(deger){
+  document.querySelectorAll(".ykBox").forEach(k=>k.checked = deger);
+  yoklamaSayacYenile();
+}
+
+async function egitimKaydet(btn){
+  const m = $("#egMesaj");
+  const baslik = $("#egBaslik").value.trim();
+  const tarih  = $("#egTarih").value;
+  if(baslik.length < 3){ m.className="uyari hata";
+    m.textContent="Eğitim konusu en az 3 karakter olmalı."; return; }
+  if(!tarih){ m.className="uyari hata"; m.textContent="Tarih gerekli."; return; }
+
+  const secilenDok = [...document.querySelectorAll(".dokBox")]
+    .filter(k=>k.checked).map(k=>Number(k.value));
+
+  const kayit = {
+    baslik, tarih,
+    aciklama: $("#egAciklama").value.trim() || null,
+    kaynak_id: null,          // artık bağlar egitim_kaynak tablosunda
+    olusturan: BEN.id
+  };
+
+  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    const {data, error} = EG_DUZENLE
+      ? await sb.from("egitim").update(kayit).eq("id", EG_DUZENLE).select().single()
+      : await sb.from("egitim").insert(kayit).select().single();
+    if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
+
+    // Doküman bağlarını tazele
+    const eid = data?.id || EG_DUZENLE;
+    if(eid){
+      const {error:sErr} = await sb.from("egitim_kaynak").delete().eq("egitim_id", eid);
+      if(sErr){ m.className="uyari hata";
+        m.textContent="Dokümanlar bağlanamadı: "+sErr.message+
+          "  (EGITIM-COKLU-DOKUMAN.sql çalıştırıldı mı?)"; return; }
+      if(secilenDok.length){
+        const {error:bErr} = await sb.from("egitim_kaynak")
+          .insert(secilenDok.map(kid=>({egitim_id:eid, kaynak_id:kid})));
+        if(bErr){ m.className="uyari hata";
+          m.textContent="Dokümanlar bağlanamadı: "+bErr.message; return; }
+      }
+    }
+    const yeni = !EG_DUZENLE;
+    EG_DUZENLE = null;
+    m.className="uyari ok"; m.textContent = yeni ? "Eğitim oluşturuldu." : "Güncellendi.";
+    // Yeni eğitimde doğrudan yoklama ekranına geç
+    if(yeni && data?.id) ACIK_EGITIM = data.id;
+    setTimeout(ekranEgitimler, 600);
+  });
+}
+
+async function egitimSil(id, ad){
+  if(!confirm(`"${ad}" eğitimi ve yoklaması kalıcı olarak silinsin mi?`)) return;
+  const {error} = await sb.from("egitim").delete().eq("id",id);
+  if(error){ const m=$("#egMesaj"); m.className="uyari hata";
+             m.textContent="Silinemedi: "+error.message; return; }
+  if(EG_DUZENLE===id) EG_DUZENLE = null;
+  ekranEgitimler();
+}
+
+async function yoklamaKaydet(eid, btn){
+  const m = $("#ykMesaj");
+  const secili = [...document.querySelectorAll(".ykBox")]
+    .filter(k=>k.checked).map(k=>k.dataset.uid);
+
+  await butonlaIsle(btn, "Kaydediliyor…", async ()=>{
+    // Önce bu eğitimin kayıtlarını temizle, sonra işaretlileri yaz
+    const {error:sErr} = await sb.from("katilim").delete().eq("egitim_id", eid);
+    if(sErr){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+sErr.message; return; }
+    if(secili.length){
+      const {error} = await sb.from("katilim")
+        .insert(secili.map(uid=>({egitim_id:eid, user_id:uid})));
+      if(error){ m.className="uyari hata"; m.textContent="Kaydedilemedi: "+error.message; return; }
+    }
+    m.className="uyari ok";
+    m.textContent = secili.length
+      ? secili.length+" kişi katıldı olarak kaydedildi."
+      : "Yoklama temizlendi — kimse işaretli değil.";
+    setTimeout(()=>{ ACIK_EGITIM = null; ekranEgitimler(); }, 1100);
+  });
+}
+
+/* ---------- DANIŞMAN: Eğitimlerim ---------- */
+async function ekranEgitimlerim(){
+  $("#icerik").innerHTML = `<div class="yukleniyor">Eğitimlerin yükleniyor…</div>`;
+
+  const {data:katilimlar, error} = await sb.from("katilim")
+    .select("egitim_id").eq("user_id", BEN.id);
+  if(error){
+    $("#icerik").innerHTML = `<div class="kart"><h2>Yüklenemedi</h2>
+      <p class="alt">${esc(error.message)}</p></div>`; return;
+  }
+  const idler = (katilimlar||[]).map(k=>k.egitim_id);
+  if(!idler.length){
+    $("#icerik").innerHTML = `<div class="kart">
+      <h2>Henüz katıldığın eğitim yok</h2>
+      <p class="alt">Bir eğitime katıldığında mentörün yoklamayı işaretler
+      ve eğitim burada görünür — notlarıyla ve varsa dokümanıyla birlikte.</p>
+      <button class="btn ince" onclick="sekmeAc('kaynaklar')">Eğitim Merkezi'ne git →</button>
+    </div>`; return;
+  }
+
+  const [{data:egitimler}, {data:kaynaklar}, {data:baglar}] = await Promise.all([
+    sb.from("egitim").select("*").in("id", idler).order("tarih",{ascending:false}),
+    sb.from("kaynak").select("id,baslik,tur,url").eq("aktif",true),
+    sb.from("egitim_kaynak").select("egitim_id,kaynak_id").in("egitim_id", idler)
+  ]);
+  const dokumanlar = eid => {
+    const kume = new Set((baglar||[]).filter(b=>b.egitim_id===eid).map(b=>b.kaynak_id));
+    const eg = (egitimler||[]).find(e=>e.id===eid);
+    if(eg?.kaynak_id) kume.add(eg.kaynak_id);
+    return [...kume].map(id=>(kaynaklar||[]).find(k=>k.id===id))
+             .filter(Boolean).sort((a,b)=>trSirala(a.baslik,b.baslik));
+  };
+
+  $("#icerik").innerHTML = `
+    <div class="kutucuklar">
+      <div class="kutu"><span>Katıldığın Eğitim</span>
+        <b style="color:var(--green)">${(egitimler||[]).length}</b></div>
+    </div>
+    <div class="kart">
+      <h2>Katıldığın Eğitimler</h2>
+      <p class="alt">Her eğitimin dokümanları altında listelenir; üstüne dokunup açabilirsin.</p>
+      ${(egitimler||[]).map(e=>{
+        const dok = dokumanlar(e.id);
+        return `
+        <div style="border:1px solid var(--border);border-left:4px solid var(--green);
+             border-radius:10px;padding:14px 15px;margin-bottom:10px">
+          <div style="font-weight:700;font-size:15px">${esc(e.baslik)}</div>
+          <div style="font-size:12.5px;color:var(--gray);margin-top:3px">
+            ${tarihYaz(e.tarih)} · <span style="color:var(--green);font-weight:600">katıldın ✓</span></div>
+          ${e.aciklama? `<div style="margin-top:8px;font-size:13.5px;line-height:1.6;
+               white-space:pre-wrap">${esc(e.aciklama)}</div>`:""}
+          ${dok.length? `
+            <div style="margin-top:11px;padding-top:11px;border-top:1px solid var(--border)">
+              <div style="font-size:12px;color:var(--gray);font-weight:600;margin-bottom:7px">
+                BU EĞİTİMİN DOKÜMANLARI (${dok.length})</div>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                ${dok.map(k=>`
+                  <a href="${esc(k.url)}" target="_blank" rel="noopener"
+                     style="display:block;padding:10px 12px;border:1px solid var(--border);
+                     border-radius:8px;text-decoration:none;color:var(--navy);
+                     font-size:13.5px;font-weight:600;background:var(--light)">
+                    ${turNormalize(k.tur)==="video"?"🎬":turNormalize(k.tur)==="sozlesme"?"📋":"📄"}
+                    ${esc(k.baslik)}
+                    <span style="float:right;color:var(--gray);font-weight:400">
+                      ${turNormalize(k.tur)==="video"?"izle →":"aç →"}</span>
+                  </a>`).join("")}
+              </div>
+            </div>` : ""}
+        </div>`;
+      }).join("")}
+      <button class="btn gri" style="width:auto;padding:10px 20px;margin-top:6px"
+              onclick="sekmeAc('kaynaklar')">Tüm dokümanlar — Eğitim Merkezi →</button>
+    </div>`;
+}
+
+/* ==========================================================
    EĞİTİM MERKEZİ
    ========================================================== */
 function ytKimlik(url){
@@ -1655,12 +1983,12 @@ async function ekranBirebir(){
                border-radius:10px;padding:13px 15px;margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;gap:10px;
                         align-items:flex-start;flex-wrap:wrap">
-              <div style="min-width:0">
+              <div style="min-width:0;flex:1 1 240px">
                 <div style="font-weight:700;font-size:14.5px">${esc(adBul(k.danisman_id))}</div>
                 <div style="font-size:12px;color:var(--gray);margin-top:2px">
                   ${tarihYaz(k.tarih)}${k.konu? " · "+esc(k.konu):""}</div>
               </div>
-              <div style="display:flex;gap:6px;white-space:nowrap">
+              <div style="display:flex;gap:6px;flex:0 0 auto;white-space:nowrap">
                 ${duzenlerMi()? `<button class="btn ince gri"
                    onclick="BB_DUZENLE=${k.id};ekranBirebir();window.scrollTo({top:0,behavior:'smooth'})"
                    >Düzenle</button>`:""}
